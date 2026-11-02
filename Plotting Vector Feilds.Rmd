@@ -1,0 +1,614 @@
+```{r}
+library(ggplot2)
+library(ggvfields)
+library(numDeriv)
+```
+
+
+## funtional forms of diffrent vector feilds
+```{r}
+# example from Vector Feild interpolation with RFB paper
+VF_1 = function(v) c(v[1]*(1/2*v[1]^2+1/2)+v[2]*(-v[1]+(1/2*v[2]-1)*v[2]+1/2),1/2*v[1]^2*v[2]+v[1]*(-1/2*v[2]^2+v[2]-1/2)+1/2*v[2]-1) 
+
+div_VF_1 = function(v) c(  bgt)
+
+# example of Vector feild with limit cycle using the 
+#Van der Pol oscillator
+VF_LimitCycle=function(v) c(v[2],.1*(1-v[1]^2)*v[2]-v[1])
+
+
+VF_StableCycle=function(v) c(v[2],-v[1])
+
+VF_SaddelNode=function(v) c(v[1],-2*v[2])
+
+VF_UnstableNode=function(v) c(v[1]/2,v[2]/2)
+```
+
+## Calculate divergence of vector feilds
+```{r}
+VF_1_x=function(v){v[1]*(1/2*v[1]^2+1/2)+v[2]*(-v[1]+(1/2*v[2]-1)*v[2]+1/2)}
+VF_1_y=function(v){1/2*v[1]^2*v[2]+v[1]*(-1/2*v[2]^2+v[2]-1/2)+1/2*v[2]-1}
+VF_1 = function(v) c(VF_1_x(v),VF_1_y(v)) 
+```
+
+
+```{r}
+VF_test=function(v)c(v[2],v[1]-v[1]^3-.02*v[2])
+
+ p=ggplot() +
+    xlim(-5,5) +
+    ylim(-5,5) +
+    geom_vector_field(
+      fun = VF_test,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+      
+    )
+ p
+```
+
+
+
+## numerical integrators
+```{r}
+forward_euler=function(x0, fun, step_size, n){
+
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  for(i in 2:n){
+    path[[i]]=path[[i-1]]+step_size*fun(path[[i-1]])
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+  }
+  path_df=data.frame(
+    x=x,
+    y=y
+  )
+  return(path_df)
+}
+
+
+backward_euler=function(x0, fun, step_size, n){
+
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  for(i in 2:n){
+    path[[i]]=path[[i-1]]-step_size*fun(path[[i-1]])
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+  }
+  path_df=data.frame(
+    x=x,
+    y=y
+  )
+  return(path_df)
+}
+
+
+```
+
+
+
+#numerical integration with gaussian noise 
+```{r}
+euler_maryama=function(x0, fun, Q, step_size, n){
+  
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  for(i in 2:n){
+    temp =path[[i-1]]+step_size*fun(path[[i-1]])
+    
+    #we need to construct a joint normal distribution and and sample form that if     #the X and y components are not independent
+    
+    #if they are independent then this works
+    suppressWarnings({
+      temp_x=rnorm(n = 1, mean = 0, sd = Q[1,1]*step_size)
+      temp_y=rnorm(n = 1, mean = 0, sd = Q[2,2]*step_size)
+    })
+    temp_x=temp_x+temp[1]
+    temp_y=temp_y+temp[2]
+    path[[i]] = c(temp_x,temp_y)
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+    }
+  
+  path_df=data.frame(
+    x=x,
+    y=y
+  )
+  return(path_df)
+  }
+
+
+###############
+#incorrect way to simulate an SDE
+##############
+
+# stochastic_forward_euler=function(x0, fun, step_size, n, sd){
+# 
+#   path=list(x0)
+#   x=c(x0[1])
+#   y=c(x0[2])
+#   for(i in 2:n){
+#     temp =path[[i-1]]+step_size*fun(path[[i-1]])
+#   
+#     temp_x=rnorm(n = 1, mean = temp[1], sd = sd)
+#     temp_y=rnorm(n = 1, mean = temp[2], sd = sd)
+#     path[[i]] = c(temp_x,temp_y)
+#     x[i]=path[[i]][1]
+#     y[i]=path[[i]][2]
+#   }
+# 
+#   path_df=data.frame(
+#     x=x,
+#     y=y
+#   )
+#   return(path_df)
+# }
+```
+
+```{r}
+## create covariance matrix for process
+sigma_1=.5
+sigma_2=.5
+Q=matrix(data = c(sigma_1,0,0,sigma_2), nrow = 2, ncol = 2, byrow = FALSE,
+       dimnames = NULL)
+
+#step_sizes=c(.01,.05,.1,.5)
+step_sizes=c(.01)
+plots=c()
+
+for(step_size in step_sizes){
+  
+  paths=c()
+  n_paths=20
+  for(i in 1:n_paths){
+     paths=c(paths,geom_path(data = euler_maryama(x0=c(-1.5,1.1), fun=VF_1,Q=Q,step_size=step_size, 100),aes(x = x, y = y),linewidth = .5,color = "lightblue"))
+  }
+  
+  p=ggplot() +
+    xlim(-5,5) +
+    ylim(-5,5) +
+    geom_vector_field(
+      fun = VF_1,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+      
+    )+
+    paths+
+    geom_path(data = forward_euler(c(-1.5,1.1), VF_1, step_size, 100),aes(x = x, y = y),linewidth = .8,color = "red")
+  
+  plots=c(p,plots)
+
+}
+
+```
+
+```{r}
+plots
+```
+```{r}
+## create covariance matrix for process
+sigma_1=1
+sigma_2=1
+Q=matrix(data = c(sigma_1,0,0,sigma_2), nrow = 2, ncol = 2, byrow = FALSE,
+       dimnames = NULL)
+
+#step_sizes=c(.01,.05,.1,.5)
+step_sizes=c(.01)
+plots=c()
+
+for(step_size in step_sizes){
+  
+  paths=c()
+  n_paths=20
+  for(i in 1:n_paths){
+     paths=c(paths,geom_path(data = euler_maryama(x0=c(0,3), fun=VF_test,Q=Q,step_size=step_size, 1000),aes(x = x, y = y),linewidth = .5,color = "lightblue"))
+  }
+  
+  p=ggplot() +
+    xlim(-5,5) +
+    ylim(-5,5) +
+    geom_vector_field(
+      fun = VF_test,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+      
+    )+
+    paths+
+    geom_path(data = forward_euler(c(0,3), VF_test, step_size, 1000),aes(x = x, y = y),linewidth = .8,color = "red")
+  
+  plots=c(p,plots)
+
+}
+plots
+```
+
+
+
+
+```{r}
+
+
+divergence=function(x,y){
+  
+  grad_x=pracma::grad(VF_1_x, x0 = c(x,y))
+  grad_y=pracma::grad(VF_1_y, x0 = c(x,y))
+  
+  grad_x[1]+grad_y[2]
+
+}
+
+div_vec <- Vectorize(divergence)
+
+
+x <- seq(-5, 5, length.out = 100)
+y <- seq(-5,5, length.out = 100)
+
+z <- outer(x, y, div_vec)
+# 4. Plot using image()
+#image(x, y, z, col = hcl.colors(12, "YlOrRd", rev = TRUE))
+
+# Alternatively, for a smoother look with a legend:
+max_abs <- max(abs(z))
+
+levels <- seq(-max_abs, max_abs, length.out = 100)
+
+filled.contour(
+  x,
+  y,
+  z,
+  levels = levels,
+  color.palette = colorRampPalette(
+    c("blue", "white", "red")
+  )
+)
+```
+
+```{r}
+VF_LimitCycle=function(v) c(v[2],.1*(1-v[1]^2)*v[2]-v[1])
+VF_LimitCycle_x=function(v){v[2]}
+VF_LimitCycle_y=function(v) {.1*(1-v[1]^2)*v[2]-v[1]}
+
+
+divergence=function(x,y){
+  
+  grad_x=pracma::grad(VF_LimitCycle_x, x0 = c(x,y))
+  grad_y=pracma::grad(VF_LimitCycle_y, x0 = c(x,y))
+  
+  grad_x[1]+grad_y[2]
+
+}
+
+div_vec <- Vectorize(divergence)
+
+
+x <- seq(-5, 5, length.out = 100)
+y <- seq(-5,5, length.out = 100)
+
+z <- outer(x, y, div_vec)
+# 4. Plot using image()
+#image(x, y, z, col = hcl.colors(12, "YlOrRd", rev = TRUE))
+
+# Alternatively, for a smoother look with a legend:
+max_abs <- max(abs(z))
+
+levels <- seq(-max_abs, max_abs, length.out = 100)
+
+filled.contour(
+  x,
+  y,
+  z,
+  levels = levels,
+  color.palette = colorRampPalette(
+    c("blue", "white", "red")
+  )
+)
+```
+
+```{r}
+## create covariance matrix for process
+sigma_1=.5
+sigma_2=.5
+Q=matrix(data = c(sigma_1,0,0,sigma_2), nrow = 2, ncol = 2, byrow = FALSE,
+       dimnames = NULL)
+
+#step_sizes=c(.01,.05,.1,.5)
+step_sizes=c(.1)
+plots=c()
+
+for(step_size in step_sizes){
+  
+  paths=c()
+  n_paths=20
+  for(i in 1:n_paths){
+     paths=c(paths,geom_path(data = euler_maryama(x0=c(5,-5), fun=VF_LimitCycle,Q=Q,step_size=step_size, 1000),aes(x = x, y = y),linewidth = .5,color = "lightblue"))
+  }
+  
+  p=ggplot() +
+    xlim(-5,5) +
+    ylim(-5,5) +
+    geom_vector_field(
+      fun = VF_LimitCycle,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+      
+    )+
+    paths+
+    geom_path(data = forward_euler(c(5,-5), VF_LimitCycle, step_size, 1000),aes(x = x, y = y),linewidth = .8,color = "red")
+  
+  plots=c(p,plots)
+
+}
+plots
+
+```
+
+
+
+```{r}
+## create covariance matrix for process
+sigma_1=.5
+sigma_2=.5
+Q=matrix(data = c(sigma_1,0,0,sigma_2), nrow = 2, ncol = 2, byrow = FALSE,
+       dimnames = NULL)
+
+#step_sizes=c(.01,.05,.1,.5)
+step_sizes=c(.1)
+plots=c()
+
+for(step_size in step_sizes){
+  
+  paths=c()
+  n_paths=20
+  for(i in 1:n_paths){
+     paths=c(paths,geom_path(data = euler_maryama(x0=c(.5,-.5), fun=VF_UnstableNode,Q=Q,step_size=step_size, 1000),aes(x = x, y = y),linewidth = .5,color = "lightblue"))
+  }
+  
+  p=ggplot() +
+    xlim(-5,5) +
+    ylim(-5,5) +
+    geom_vector_field(
+      fun = VF_UnstableNode,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+      
+    )+
+    paths+
+    geom_path(data = forward_euler(c(.5,-.5), VF_UnstableNode, step_size, 1000),aes(x = x, y = y),linewidth = .8,color = "red")
+  
+  plots=c(p,plots)
+
+}
+plots
+
+```
+
+
+
+```{r}
+p=ggplot() +
+  xlim(-2,2) +
+  ylim(-2,2) +
+  geom_vector_field(
+    fun = VF_StableCycle,
+    xlim=c(-2,2),
+    ylim=c(-2,2),
+    n=20,
+    arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+    
+  )+
+  geom_path(data = forward_euler(c(-1.3,1.1), VF_StableCycle, .001, 10000),aes(x = x, y = y),linewidth = .5,color = "red")
+p
+```
+```{r}
+low=-5.5
+high=5.5
+
+p=ggplot() +
+  xlim(low,high) +
+  ylim(low,high) +
+  geom_vector_field(
+    fun = VF_LimitCycle,
+    xlim=c(low,high),
+    ylim=c(low,high),
+    n=20,
+    arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+    
+  )+
+  geom_path(data = forward_euler(c(-5,5), VF_LimitCycle, .01, 3000),aes(x = x, y = y),linewidth = .5,color = "red")+
+   geom_path(data = stochastic_forward_euler(c(-5,5), VF_LimitCycle, .01, 3000,sd=.01),aes(x = x, y = y),linewidth = .5,color = "blue")+
+  geom_path(data = forward_euler(c(0.1,0.1), VF_LimitCycle, .01, 10000),aes(x = x, y = y),linewidth = .5,color = "orange")
+  
+p
+```
+
+```{r}
+low=-5.5
+high=5.5
+
+p=ggplot() +
+  xlim(low,high) +
+  ylim(low,high) +
+  geom_vector_field(
+    fun = VF_UnstableNode,
+    xlim=c(low,high),
+    ylim=c(low,high),
+    n=20,
+    arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+    
+  )+
+  geom_path(data = stochastic_forward_euler(c(0,0), VF_UnstableNode, .05, 500,sd=.01),aes(x = x, y = y),linewidth = .5,color = "blue")+
+  geom_path(data = stochastic_forward_euler(c(0,0), VF_UnstableNode, .05, 500,sd=.01),aes(x = x, y = y),linewidth = .5,color = "green")+
+  geom_path(data = stochastic_forward_euler(c(0,0), VF_UnstableNode, .05, 500,sd=.01),aes(x = x, y = y),linewidth = .5,color = "red")+
+  geom_path(data = stochastic_forward_euler(c(0,0), VF_UnstableNode, .05, 500,sd=.01),aes(x = x, y = y),linewidth = .5,color = "purple")+
+  geom_path(data = stochastic_forward_euler(c(0,0), VF_UnstableNode, .05, 500,sd=.01),aes(x = x, y = y),linewidth = .5,color = "orange")
+
+p
+```
+
+
+
+## discrete vector feild defined by a raster from Hycom
+
+```{r}
+library(terra)
+hycom_data2=rast("runs_FMRC_ESPC-D-V02_uv3z_RUN_2026-01-30T12_00_00Z.nc4")
+```
+
+```{r}
+terra::plot(hycom_data2$`water_u_depth=0`)
+terra::plot(hycom_data2$`water_v_depth=0`)
+terra::plot(sqrt(hycom_data2$`water_u_depth=0`^2+hycom_data2$`water_v_depth=0`^2))
+```
+
+```{r}
+library(ggquiver)
+```
+
+
+```{r}
+r=hycom_data2
+coords_matrix <- xyFromCell(r, 1:ncell(r))
+
+long=coords_matrix[,1]
+lat=coords_matrix[,2]
+velocity_u=values(hycom_data2$`water_u_depth=0`)
+velocity_v=values(hycom_data2$`water_v_depth=0`)
+
+hycom_df=data.frame(
+  lat=lat,
+  long=long,
+  velocity_u=velocity_u,
+  velocity_v=velocity_v
+)
+```
+
+
+```{r}
+#gets a subset of the data set to plot
+n=20
+hycom_df_filtered <- hycom_df[seq(1, nrow(hycom_df), n), ]
+
+#scales the vector size with a sigmoid function
+a=1
+hycom_df_filtered$water_u_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_u_depth.0)))-(a/2)
+hycom_df_filtered$water_v_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_v_depth.0)))-(a/2)
+```
+
+
+```{r}
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE) 
+```
+
+```{r}
+?terra::extract
+```
+
+```{r}
+pt <- matrix(c(long, lat), ncol=2, byrow=TRUE)
+r=hycom_data2$`water_u_depth=0`
+u<- terra::extract(r, pt, method="bilinear")$`water_u_depth=0`
+print(u)
+```
+
+
+```{r}
+forward_eule_Hycom=function(x0, flow_map, step_size, n){
+
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  u_raster=flow_map$`water_u_depth=0`
+  v_raster=flow_map$`water_v_depth=0`
+  for(i in 2:n){
+    pt <- matrix(c(path[[i-1]][1], path[[i-1]][2]), ncol=2, byrow=TRUE)
+    u = terra::extract(u_raster, pt, method="bilinear")$`water_u_depth=0`
+    v = terra::extract(v_raster, pt, method="bilinear")$`water_v_depth=0`
+    
+    path[[i]]=path[[i-1]]+step_size*c(u,v)
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+  }
+  path_df=data.frame(
+    x=x,
+    y=y
+  )
+  return(path_df)
+}
+
+stochastic_forward_euler_hycom=function(x0, flow_map, step_size, n, sd){
+    path=list(x0)
+    x=c(x0[1])
+    y=c(x0[2])
+    u_raster=flow_map$`water_u_depth=0`
+    v_raster=flow_map$`water_v_depth=0`
+    for(i in 2:n){
+      
+      pt <- matrix(c(path[[i-1]][1], path[[i-1]][2]), ncol=2, byrow=TRUE)
+      u = terra::extract(u_raster, pt, method="bilinear")$`water_u_depth=0`
+      v = terra::extract(v_raster, pt, method="bilinear")$`water_v_depth=0`
+      
+      temp =path[[i-1]]+step_size*c(u,v)
+    
+      temp_x=suppressWarnings(rnorm(n = 1, mean = temp[1], sd = sd))
+      temp_y=suppressWarnings(rnorm(n = 1, mean = temp[2], sd = sd))
+      path[[i]] = c(temp_x,temp_y)
+      x[i]=path[[i]][1]
+      y[i]=path[[i]][2]
+    }
+  
+    path_df=data.frame(
+      x=x,
+      y=y
+    )
+    return(path_df)
+
+}
+
+```
+
+
+```{r}
+path1=forward_eule_Hycom(c(300.5,36.5),hycom_data2,.02,n=500)
+path2=forward_eule_Hycom(c(300.5,39.5),hycom_data2,.1,n=500)
+path3=forward_eule_Hycom(c(302.5,38),hycom_data2,.1,n=1000)
+path4=stochastic_forward_euler_hycom(c(300.5,36.5),hycom_data2,.02,n=500, sd=.05)
+```
+
+```{r}
+terra::plot(sqrt(hycom_data2$`water_u_depth=0`^2+hycom_data2$`water_v_depth=0`^2))
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE) +
+  
+geom_path(data =path1 ,aes(x = x, y = y),linewidth = .7,color = "red")+
+geom_path(data =path4 ,aes(x = x, y = y),linewidth = .7,color = "green")+
+geom_path(data =path2 ,aes(x = x, y = y),linewidth = .5,color = "blue")+
+geom_path(data =path3 ,aes(x = x, y = y),linewidth = .5,color = "orange")
+
+
+```
+
+
+
+

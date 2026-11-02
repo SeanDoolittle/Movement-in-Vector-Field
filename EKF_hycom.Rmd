@@ -1,0 +1,305 @@
+```{r}
+library(ggplot2)
+library(ggvfields)
+library(MASS)
+library(terra)
+library(lubridate)
+library(ggquiver)
+library(readxl)
+library(exactextractr)
+library(raster)
+library(parallel)
+library(optimx)
+library(ks)
+```
+
+
+# Animal movement data
+
+```{r}
+df=read_excel("data/Mansfield_Cm_NATL_2011-2012_Dryad.xlsx")
+```
+
+```{r}
+ggplot() +geom_point(data=df[df$tag_id=="85512b",], aes(x=lon,y=lat),color="blue") 
+```
+```{r}
+
+```
+
+
+
+```{r}
+# # original testing individual
+# unique(df$tag_id)
+# df_individual=df[df$tag_id=="85511c",]
+# unique(df_individual$tag_id)
+```
+
+```{r}
+unique(df$tag_id)
+df_individual=df[df$tag_id=="85512b",]
+unique(df_individual$tag_id)
+
+```
+
+
+
+```{r}
+t=c(0)
+for(i in 2:length(df_individual$utc)){
+  t[i]=as.numeric(as.duration(ymd_hms(df_individual$utc[i])-ymd_hms(df_individual$utc[1])))
+}
+
+df_individual$t=t
+```
+
+
+```{r}
+lat_range=c(min(df_individual$lat),max(df_individual$lat))
+lat_range
+```
+
+
+```{r}
+lon_range=c(min(df_individual$lon),max(df_individual$lon))
+lon_range
+```
+
+```{r}
+time_range=c(min(df_individual$utc),max(df_individual$utc))
+time_range             
+```
+```{r}
+ggplot() +geom_point(data=df_individual, aes(x=lon,y=lat),color="blue") 
+```
+
+
+```{r}
+# df_individual_trimmed=df_individual[df_individual$lon < -75,]
+# df_individual_trimmed$t=df_individual_trimmed$t/(60)
+```
+```{r}
+# df_individual_trimmed
+```
+
+
+
+
+
+#Hycom data
+
+```{r}
+get_hycom=function(lat_range, lon_range,n=20){
+  
+  url <- paste0("https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=",lat_range[2]+1,"&west=",lon_range[1]-1,"&east=",lon_range[2]+1,"&south=",lat_range[1]-1,"&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf")
+  # Download the NetCDF file
+  download.file(url, "hycom.nc", mode = "wb")
+  
+  r <- rast("hycom.nc")
+  
+  coords_matrix <- xyFromCell(r, 1:ncell(r))
+  
+  
+  long=coords_matrix[,1]
+  lat=coords_matrix[,2]
+  velocity_u=values(r$`water_u_depth=0`)
+  velocity_v=values(r$`water_v_depth=0`)
+  
+  hycom_df=data.frame(
+    lat=lat,
+    long=long,
+    velocity_u=velocity_u,
+    velocity_v=velocity_v
+  )
+  
+  #gets a subset of the data set to plot
+  hycom_df_filtered <- hycom_df[seq(1, nrow(hycom_df), n), ]
+  
+  #scales the vector size with a sigmoid function
+  a=1
+  hycom_df_filtered$water_u_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_u_depth.0)))-(a/2)
+  hycom_df_filtered$water_v_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_v_depth.0)))-(a/2)
+  
+  return(list(r,hycom_df_filtered))
+}
+```
+
+```{r}
+#url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=32.6&west=-81&east=-76&south=26.5&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+# url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=35&west=-90&east=-70&south=20&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+#url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=34&west=-83&east=-75&south=26&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+# url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=33&west=-81&east=-76&south=26&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+
+
+
+temp=get_hycom(lat_range = lat_range,lon_range=lon_range,n=50)
+r=temp[[1]]
+hycom_df_filtered=temp[[2]]
+```
+
+
+```{r}
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 8
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=df_individual, aes(x=lon,y=lat),color="blue",size = 2) 
+```
+
+# Triming the data set to an area that looks intresting and is not near land
+
+
+```{r}
+df_individual_trimmed=df_individual[df_individual$lon < -64 & df_individual$lon > -70,]
+df_individual_trimmed$t=df_individual_trimmed$t/(60)
+```
+
+```{r}
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 8
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue",size = 2) 
+```
+
+```{r}
+lat_range=c(min(df_individual_trimmed$lat),max(df_individual_trimmed$lat))
+lon_range=c(min(df_individual_trimmed$lon),max(df_individual_trimmed$lon))
+
+temp=get_hycom(lat_range = lat_range,lon_range=lon_range,n=3)
+r=temp[[1]]
+hycom_df_filtered=temp[[2]]
+```
+
+```{r}
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 3
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue",size = 2) 
+```
+#select one data point from each group 
+#### just so I am just larger time steps in the simulations so that it can run fast
+```{r}
+df_individual_trimmed
+```
+```{r}
+df_individual_trimmed=df_individual[df_individual$lon < -64 & df_individual$lon > -70,]
+df_individual_trimmed$t=df_individual_trimmed$t/(60)
+
+df_individual_trimmed=df_individual_trimmed[c(1,16,33),]
+#df_individual_trimmed=df_individual_trimmed[c(16,33),]
+
+
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 3
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue",size = 2) 
+```
+
+
+## This is the function that will be replaced by that paper chris sent me
+```{r}
+# VF_Hycom=function(x,r){
+#   xy <- cbind(lon=x[1], lat=x[2])
+#  p <- vect(xy, crs="+proj=longlat +datum=WGS84")
+#  return(as.numeric(terra::extract(r, p))[2:3])
+# }
+
+VF_Hycom<- function(x) {
+  xy <- matrix(c(x[1], x[2]), ncol = 2)
+  as.numeric(terra::extract(r, xy))
+}
+
+```
+
+```{r}
+# x=m[[1]]
+# xy=matrix(c(x[1],x[2]),ncol=2)
+# xy
+# p <- vect(xy, crs="+proj=longlat +datum=WGS84")
+# terra::extract(r,xy)
+```
+
+```{r}
+terra::plot(r$`water_u_depth=0`)
+xy <- matrix(c(-68, 38), ncol = 2)
+terra::extract(r,xy)
+```
+
+
+
+```{r}
+df_individual_trimmed
+```
+
+```{r}
+rep(df_individual_trimmed$t[1],3)
+```
+
+
+```{r}
+df_individual_trimmed$t=df_individual_trimmed$t - rep(df_individual_trimmed$t[1],3)
+df_individual_trimmed
+```
+
+```{r}
+
+m=list()
+for(i in 1:length(df_individual_trimmed$t)){
+  m[[i]]=as.numeric(df_individual_trimmed[i,c("lon","lat")])
+}
+m
+```
+
+```{r}
+Q=array(c(.02,0,0,.02),dim=c(2,2))
+delta_t=1
+#m=list(x[[1]])
+P=list(Q)
+m_hat=list()
+p_hat=list()
+F=list()
+K=list()
+I=array(c(1,0,0,1), dim=c(2,2))
+
+#Forward pass
+for(i in 1:df_individual_trimmed$t[3]){
+  
+  #prediction
+  m_hat[[i]]=m[[i]]+VF_1(m[[i]])*delta_t
+  F[[i]]=I+pracma::jacobian(VF_1,m[[i]])*delta_t
+  p_hat[[i]]=F[[i]]%*%P[[i]]%*%t(F[[i]])+Q*delta_t
+
+  if(i %in% df_individual_trimmed$t){
+    #observer update
+    K[[i]]=p_hat[[i]]%*%solve((p_hat[[i]]+R))
+    m[[i+1]]=m_hat[[i]]+K[[i]]%*%(y[[i+1]]-m_hat[[i]])
+    P[[i+1]]=(I-K[[i]])%*%p_hat[[i]]
+    delta_t=delta_t+1
+  }
+  else{
+    m[[i+1]]=m_hat[[i+1]]
+    P[[i+1]]=p_hat[[i+1]]
+    delta_t=1
+  }
+  
+  
+  
+}
+```
+```{r}
+pracma::jacobian(VF_Hycom,m[[1]])
+```
+
+
+```{r}
+VF_Hycom(m[[2]])
+```
+
+Gaussian Filter
+
+
+

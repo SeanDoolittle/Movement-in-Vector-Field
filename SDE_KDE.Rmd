@@ -1,0 +1,1338 @@
+```{r}
+library(ggplot2)
+library(ggvfields)
+library(MASS)
+library(terra)
+library(lubridate)
+library(ggquiver)
+library(readxl)
+library(exactextractr)
+library(raster)
+library(parallel)
+library(optimx)
+library(ks)
+```
+
+
+
+
+
+
+
+# Animal movement data
+
+```{r}
+df=read_excel("data/Mansfield_Cm_NATL_2011-2012_Dryad.xlsx")
+```
+
+```{r}
+ggplot() +geom_point(data=df[df$tag_id=="85512b",], aes(x=lon,y=lat),color="blue") 
+```
+```{r}
+
+```
+
+
+
+```{r}
+# # original testing individual
+# unique(df$tag_id)
+# df_individual=df[df$tag_id=="85511c",]
+# unique(df_individual$tag_id)
+```
+
+```{r}
+unique(df$tag_id)
+df_individual=df[df$tag_id=="85512b",]
+unique(df_individual$tag_id)
+
+```
+
+
+
+```{r}
+t=c(0)
+for(i in 2:length(df_individual$utc)){
+  t[i]=as.numeric(as.duration(ymd_hms(df_individual$utc[i])-ymd_hms(df_individual$utc[1])))
+}
+
+df_individual$t=t
+```
+
+
+```{r}
+lat_range=c(min(df_individual$lat),max(df_individual$lat))
+lat_range
+```
+
+
+```{r}
+lon_range=c(min(df_individual$lon),max(df_individual$lon))
+lon_range
+```
+
+```{r}
+time_range=c(min(df_individual$utc),max(df_individual$utc))
+time_range             
+```
+```{r}
+ggplot() +geom_point(data=df_individual, aes(x=lon,y=lat),color="blue") 
+```
+
+
+```{r}
+# df_individual_trimmed=df_individual[df_individual$lon < -75,]
+# df_individual_trimmed$t=df_individual_trimmed$t/(60)
+```
+```{r}
+# df_individual_trimmed
+```
+
+
+
+
+
+#Hycom data
+
+```{r}
+get_hycom=function(lat_range, lon_range,n=20){
+  
+  url <- paste0("https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=",lat_range[2]+1,"&west=",lon_range[1]-1,"&east=",lon_range[2]+1,"&south=",lat_range[1]-1,"&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf")
+  # Download the NetCDF file
+  download.file(url, "hycom.nc", mode = "wb")
+  
+  r <- rast("hycom.nc")
+  
+  coords_matrix <- xyFromCell(r, 1:ncell(r))
+  
+  
+  long=coords_matrix[,1]
+  lat=coords_matrix[,2]
+  velocity_u=values(r$`water_u_depth=0`)
+  velocity_v=values(r$`water_v_depth=0`)
+  
+  hycom_df=data.frame(
+    lat=lat,
+    long=long,
+    velocity_u=velocity_u,
+    velocity_v=velocity_v
+  )
+  
+  #gets a subset of the data set to plot
+  hycom_df_filtered <- hycom_df[seq(1, nrow(hycom_df), n), ]
+  
+  #scales the vector size with a sigmoid function
+  a=1
+  hycom_df_filtered$water_u_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_u_depth.0)))-(a/2)
+  hycom_df_filtered$water_v_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_v_depth.0)))-(a/2)
+  
+  return(list(r,hycom_df_filtered))
+}
+```
+
+```{r}
+#url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=32.6&west=-81&east=-76&south=26.5&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+# url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=35&west=-90&east=-70&south=20&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+#url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=34&west=-83&east=-75&south=26&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+# url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2013?var=water_u&var=water_v&north=33&west=-81&east=-76&south=26&disableProjSubset=on&horizStride=1&time=2013-01-15T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+
+
+
+temp=get_hycom(lat_range = lat_range,lon_range=lon_range,n=50)
+r=temp[[1]]
+hycom_df_filtered=temp[[2]]
+```
+
+
+```{r}
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 8
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=df_individual, aes(x=lon,y=lat),color="blue",size = 2) 
+```
+
+# Triming the data set to an area that looks intresting and is not near land
+
+
+```{r}
+df_individual_trimmed=df_individual[df_individual$lon < -64 & df_individual$lon > -70,]
+df_individual_trimmed$t=df_individual_trimmed$t/(60)
+```
+
+```{r}
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 8
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue",size = 2) 
+```
+
+```{r}
+lat_range=c(min(df_individual_trimmed$lat),max(df_individual_trimmed$lat))
+lon_range=c(min(df_individual_trimmed$lon),max(df_individual_trimmed$lon))
+
+temp=get_hycom(lat_range = lat_range,lon_range=lon_range,n=3)
+r=temp[[1]]
+hycom_df_filtered=temp[[2]]
+```
+
+```{r}
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 3
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue",size = 2) 
+```
+#select one data point from each group 
+#### just so I am just larger time steps in the simulations so that it can run fast
+```{r}
+df_individual_trimmed
+```
+```{r}
+df_individual_trimmed=df_individual[df_individual$lon < -64 & df_individual$lon > -70,]
+df_individual_trimmed$t=df_individual_trimmed$t/(60)
+
+df_individual_trimmed=df_individual_trimmed[c(1,16,33),]
+#df_individual_trimmed=df_individual_trimmed[c(16,33),]
+
+
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 3
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue",size = 2) 
+```
+
+
+
+
+```{r}
+euler_maryama_bridge=function(x0,xT,T, fun, Q, step_size,r,k=32*30,a=1){
+  
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  path_prime=data.frame()
+  f_xy=data.frame()
+  times <- seq(0, T, by=step_size)
+  for(i in 2:length(times)){
+    #print(path[[i-1]])
+    temp=fun(path[[i-1]],r)
+ 
+    f_xy=rbind(f_xy,temp)
+    # x_prime=(1/(32*60)*temp+((((xT+.001)-path[[i-1]]))/((T+.001)-times[i])))
+    #x_prime=(1/(k)*temp+((((xT+.001)-path[[i-1]]))/((T+.001)-times[i])))
+    #x_prime=(1/(k)*temp+((((xT)-path[[i-1]]))/((T)-times[i])))
+    #x_prime=(((1/k)*((-1/T)*(times[i]-times[1])+1))*temp+((((xT)-path[[i-1]]))/((T)-times[i]))) 
+     x_prime=(((1/k)*((-T**(-1/a))*((times[i]-times[1])**(1/a))+1))*temp+((((xT)-path[[i-1]]))/((T)-times[i])))
+    temp =path[[i-1]]+step_size*x_prime
+    path_prime=rbind(path_prime,x_prime)
+    #temp =path[[i-1]]+step_size*((T-times[i]/8*T)*fun(path[[i-1]],r)+(((xT-path[[i-1]]))/(T-times[i])))
+
+    #temp=path[[i-1]]+step_size*((xT-path[[i-1]]))/((T+.001)-i*step_size)
+
+    
+    #we need to construct a joint normal distribution and and sample form that if     #the X and y components are not independent
+    
+    #if they are independent then this works
+    suppressWarnings({
+      temp_x=rnorm(n = 1, mean = 0, sd = Q[1,1]*step_size)
+      temp_y=rnorm(n = 1, mean = 0, sd = Q[2,2]*step_size)
+    })
+    
+    temp_x=temp_x+temp[1]
+    temp_y=temp_y+temp[2]
+    path[[i]] = c(temp_x,temp_y)
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+  }
+  colnames(f_xy)=c("f_x","f_y")
+  colnames(path_prime)=c("x_prime","y_prime")
+  path_df=data.frame(
+    x=x[1:length(times)-1],
+    y=y[1:length(times)-1]
+  )
+  path_df=cbind(path_df,path_prime)
+  path_df=cbind(path_df,f_xy)
+  return(path_df)
+  }
+
+```
+
+
+## This is the function that will be replaced by that paper chris sent me
+```{r}
+# VF_Hycom=function(x,r){
+#   xy <- cbind(lon=x[1], lat=x[2])
+#  p <- vect(xy, crs="+proj=longlat +datum=WGS84")
+#  return(as.numeric(terra::extract(r, p))[2:3])
+# }
+
+VF_Hycom<- function(x, r) {
+  xy <- matrix(c(x[1], x[2]), ncol = 2)
+  as.numeric(terra::extract(r, xy))
+}
+
+```
+
+
+
+
+```{r}
+make_path=function(k, Q=array(c(.001,0,0,.001),dim=c(2,2)),step_size=20,a=1){
+  system.time({
+  path=c()
+  k=k
+  f_xy=c()
+  #Q=array(c(0,0,0,0), dim=c(2,2))
+  data=df_individual_trimmed
+  for(i in 2:length(data$tag_id)){
+    x0=c(data$lon[i-1],data$lat[i-1])
+    xT=c(data$lon[i],data$lat[i])
+    delta_t= data$t[i]-data$t[i-1]
+    temp_path=euler_maryama_bridge(x0 = x0, xT = xT,T = delta_t,fun = VF_Hycom,step_size =step_size,Q=Q,r = r,k,a=a)
+    
+  
+    # print(length(temp_path$x))
+    # print(temp_path)
+    path=rbind(path,temp_path)
+  }
+ 
+  
+  
+  
+  T=df_individual_trimmed$t[length(df_individual_trimmed$t)]
+  times <- seq(0, T, by=step_size)
+  while(length(path$x)<length(times)){
+    times=times[-length(times)]
+  }
+  #times=times[-length(times)]
+  print(length(path$x))
+  print(length(times))
+  path$times=times
+  
+  # T=path$times
+  # for(i in 2:length(df_individual_trimmed$t)){
+  #   t1=df_individual_trimmed$t[i-1]
+  #   t2=df_individual_trimmed$t[i]
+  #   T[T>=t1 & T<t2]=t2-.1
+  # }
+  # T=T+.1
+  # 
+  # bridge_points=data.frame()
+  # for(t in T){
+  #   bridge_points=rbind(bridge_points,as.numeric(df_individual_trimmed[df_individual_trimmed$t==t,c("lon","lat")]))
+  # }
+  # colnames(bridge_points)<-c("xT","yT")
+  # bridge_points
+  # bridge_points$t=T
+  # 
+  # path=cbind(path,bridge_points)
+  
+  return(path)
+  })
+}
+```
+
+
+#path work and path length
+```{r}
+h_t=function(path){
+  #f(p(t))
+  VF_x=c(path$f_x,path$f_y)
+  a=VF_x
+  #p'(t)
+  b=c(path$x_prime,path$y_prime)
+  #f(p(t)).p'(t)
+  return(sum(a*b))
+}
+
+r_t=function(path){
+  p_x=path$x_prime
+  p_y=path$y_prime
+  return(sqrt(p_x^2+p_y^2))
+}
+```
+
+
+#optimize objective function
+```{r}
+#I need to clean this up. I am sure there is a way to make it look nice
+objective <- function(k) {
+
+  
+  path=make_path(k, Q=array(c(0,0,0,0),dim=c(2,2)))
+  #print(k)
+  L=length(path$time)
+  #print(paste0("L=",L))
+  S=100
+  #print(S)
+  I_len=as.integer(L/S)
+  #print(paste0("I_len=",I_len))
+  I_len
+  I_rem=L%%S
+  
+  objective_fun=0
+  if(I_len%%2!=0){
+    for(i in 1:(S-1)){
+      t0=(i-1)*I_len+1
+      h_t0=h_t(path[t0,])
+      r_t0=r_t(path[t0,])
+      
+      tm=((i-1)*I_len)+as.integer(I_len/2)+1
+      h_tm=h_t(path[tm,])
+      r_tm=r_t(path[tm,])
+      
+      tf=i*I_len
+      h_tf=h_t(path[tf,])
+      r_tf=r_t(path[tf,])
+      
+      
+      h_temp=((tf-t0)/6)*(h_t0+4*h_tm+h_tf)
+      r_temp=((tf-t0)/6)*(r_t0+4*r_tm+r_tf)
+      # temp=h_temp/r_temp
+      # objective_fun=objective_fun+temp
+      temp=h_temp
+      objective_fun=objective_fun+temp
+    }
+  }else{
+    for(i in 1:(S-1)){
+      t0=(i-1)*I_len+1
+      #print(t0)
+      h_t0=h_t(path[t0,])
+      r_t0=r_t(path[t0,])
+      # print(h_t0)
+      # print(r_t0)
+      
+      
+      tm1=((i-1)*I_len)+I_len/2
+      tm2=tm1+1
+      h_tm1=h_t(path[tm1,])
+      h_tm2=h_t(path[tm2,])
+      r_tm1=r_t(path[tm1,])
+      r_tm2=r_t(path[tm2,])
+      
+      h_tm=(h_tm1+h_tm2)/2
+      r_tm=(r_tm1+r_tm2)/2
+      # print(h_tm)
+      # print(r_tm)
+      
+      tf=i*I_len
+      h_tf=h_t(path[tf,])
+      r_tf=r_t(path[tf,])
+      # print(h_tf)
+      # print(r_tm)
+      h_temp=((tf-t0)/6)*(h_t0+4*h_tm+h_tf)
+      r_temp=((tf-t0)/6)*(r_t0+4*r_tm+r_tf)
+      # temp=h_temp/r_temp
+      # #print(temp)
+      # objective_fun=objective_fun+temp
+      # print(objective_fun)
+      # print("-----------")
+      temp=h_temp
+      objective_fun=objective_fun+temp
+    }
+  }
+  
+  t0=(S-1)*I_len+1
+  h_t0=h_t(path[t0,])
+  r_to=r_t(path[t0,])
+  
+  if(I_len+I_rem%%2!=0){    
+    tm=((i-1)*I_len)+as.integer(I_len+I_rem/2)+1
+    h_tm=h_t(path[tm,])
+    r_tm=r_t(path[tm,])
+  }else{
+    tm1=((i-1)*I_len)+I_len/2
+    tm2=tm1+1
+    h_tm1=h_t(path[tm1,])
+    h_tm2=h_t(path[tm2,])
+    r_tm1=r_t(path[tm1,])
+    r_tm2=r_t(path[tm2,])
+      
+    h_tm=(h_tm1+h_tm2)/2
+    r_tm=(r_tm1+r_tm2)/2
+  } 
+  
+    tf=(S*I_len)+I_rem
+    h_tf=h_t(path[tf,])
+    r_tf=r_t(path[tf,])
+      
+    h_temp=((tf-t0)/6)*(h_t0+4*h_tm+h_tf)
+      r_temp=((tf-t0)/6)*(r_t0+4*r_tm+r_tf)
+      #temp=h_temp/r_temp
+      temp=h_temp
+    objective_fun=objective_fun+temp
+  
+  #print(objective_fun)
+  return(objective_fun) 
+}
+```
+
+
+
+
+```{r}
+# k_s=c()
+# for(i in 1:30){
+#   k_s[i]=objective(i*200)
+# }
+# 
+# plot(k_s)
+```
+
+
+
+
+```{r}
+# result <- optim(
+#   par = 875,  #make this little more complicated so that the location of the extra knots and times are between on the direct path between the data points
+#   fn = objective,
+#   method = "L-BFGS-B"
+#   #method="BFGS"
+#   
+# )
+# -result$value
+# result$par
+```
+
+
+
+
+
+
+
+```{r}
+parallel_optimizer=function(start,end){
+  cl <- makeCluster(9)
+
+  clusterExport(cl, c(
+    "df_individual_trimmed",
+    "euler_maryama_bridge",
+    "VF_Hycom",
+    "make_path",
+    "h_t",
+    "r_t",
+    "url"
+  ))
+  
+  clusterEvalQ(cl, {
+  library(terra)
+  # download.file(url, "hycom.nc", mode = "wb")
+  
+  r <- rast("hycom.nc")
+  
+  NULL
+  })
+  
+  temp=(1/8)*(end-start)
+    paths=clusterApply(cl, objective, x =list(start,1*temp+start,2*temp+start,3*temp+start,4*temp+start,5*temp+start,6*temp+start,7*temp+start,end))
+
+  
+  stopCluster(cl)
+  return(paths)
+}
+
+```
+
+
+
+#some times this gives a nice trajectory and some times it gives a Browain Bridge
+```{r}
+end_point=6000
+set.seed(1)
+system.time({
+  values=parallel_optimizer(1,end_point)
+})
+
+end=c(end_point)
+start=c(1)
+for(i in 2:8){
+  values=as.numeric(values)
+  values[is.na(values)]=0
+  print(values)
+  max=max(values)
+  print(max)
+  max_index=which.max(values) 
+  print(max_index)
+  last_end= end[i-1]
+  last_start=start[i-1]
+  
+  start[i]=((last_end-last_start)*((max_index-2))/8)+last_start
+  print(start[i])
+  
+  end[i]=((last_end-last_start)*((max_index))/8)+last_start
+  print(end[i])
+  
+  system.time({
+  values=parallel_optimizer(start=start[i],end=end[i])
+})
+}
+
+```
+
+
+
+
+
+```{r}
+# k_hat=5510.978
+# #1000 end point
+# k_hat=141.0667
+# #2000 end point
+# k_hat=2169.349
+# #3000 end point
+# k_hat=2020.498
+# #4000 end point
+# k_hat=3726.387
+# #5000 end point
+# k_hat=4981.693
+# #6000 end point
+# k_hat=2169.532
+# #1500 end point
+# k_hat= 2169.532
+# #20000 end point
+# #k_hat=1562.536
+
+
+
+k_hat=2190.759
+```
+
+
+
+```{r}
+path=make_path(k_hat,Q=array(c(0,0,0,0),dim=c(2,2)))
+```
+
+```{r}
+ggplot(hycom_df_filtered) +
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_path(data = path,aes(x = x, y = y),linewidth = .8,color = "red")+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue")
+```
+
+```{r}
+path_deterministic=make_path(k_hat, Q=array(c(0,0,0,0), dim=c(2,2)))
+```
+
+
+
+
+```{r}
+system.time({
+  cl <- makeCluster(20)
+
+  clusterExport(cl, c(
+    "df_individual_trimmed",
+    "euler_maryama_bridge",
+    "VF_Hycom",
+    "make_path",
+    "h_t",
+    "r_t",
+    "url"
+  ))
+  
+  clusterEvalQ(cl, {
+  library(terra)
+  # download.file(url, "hycom.nc", mode = "wb")
+  
+  r <- rast("hycom.nc")
+  
+  NULL
+  })
+  
+  paths_SDE=clusterApply(cl, make_path, x =as.list(rep(k_hat,50)))
+
+  
+  stopCluster(cl)
+})
+
+  
+```
+
+
+
+
+
+
+
+```{r}
+plots=c()
+for(path_SDE in paths_SDE){
+  
+  plots=c(plots,geom_path(data = path_SDE,aes(x = x, y = y),linewidth = .8,color = "lightpink"))
+}
+```
+
+```{r}
+ggplot(hycom_df_filtered) +
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+plots+geom_path(data = path_deterministic,aes(x = x, y = y),linewidth = .8,color = "red")+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue")
+```
+
+
+# ```{r}
+# Q=array(c(.001,0,0,.001),dim=c(2,2))
+# Q
+# paths_SDE
+# ```
+
+```{r}
+# library(mvtnorm)
+# mu=c(paths_SDE[[1]]$x[1],paths_SDE[[1]]$y[1])
+# mu
+# delta_t=20
+# sigma=Q*20
+# sigma
+# 
+# dmvnorm(mean=mu,sigma=sigma)
+```
+
+```{r}
+mus=c()
+Sigmas=c()
+Q=array(c(.001,0,0,.001),dim=c(2,2))
+Q
+
+
+for(i in 1:length(paths_SDE[[1]]$x)){
+  for(j in 1:length(paths_SDE)){
+  mus=rbind(mus,c(paths_SDE[[j]]$x[i],paths_SDE[[j]]$y[i]))
+  Sigmas=rbind(Sigmas,Q*20)
+  }
+}
+
+```
+
+```{r}
+props=rep(1/(length(paths_SDE)*length(paths_SDE[[1]]$x)),length(paths_SDE)*length(paths_SDE[[1]]$x))
+```
+
+
+```{r}
+max(mus)
+```
+
+```{r}
+plotmixt(mus=mus, Sigmas=Sigmas, props=props, display="filled.contour",  asp = 1
+)
+```
+
+
+
+
+
+
+
+
+
+```{r}
+# plotmixt(mus=mus, Sigmas=Sigmas, props=props, display="filled.contour",  asp = 1
+# )
+```
+
+```{r}
+mus=c()
+Sigmas=c()
+Q=array(c(.001,0,0,.001),dim=c(2,2))
+
+plts=c()
+for(i in 1:length(paths_SDE[[1]]$x)){
+#for(i in 1:5){
+  mus=c()
+  Sigmas=c()
+  for(j in 1:length(paths_SDE)){
+  mus=rbind(mus,c(paths_SDE[[j]]$x[i],paths_SDE[[j]]$y[i]))
+  Sigmas=rbind(Sigmas,Q*20)
+ 
+  }
+  props=rep(1/length(paths_SDE),length(paths_SDE))
+  x <- rmvnorm.mixt(1000, mus=mus, Sigmas=Sigmas, props=props)
+
+  x_points=data.frame(
+    x=x[,1],
+    y=x[,2]
+  )
+  
+ plt_density = ggplot(data = x_points, aes(x = x, y = y)) +
+  geom_density_2d_filled() +
+  geom_density_2d(color = "black") +
+  scale_fill_manual(
+    values = c(
+      "transparent",  # (0.00, 0.02]
+      viridisLite::viridis(13)
+    )
+  ) +
+  coord_fixed(ratio = 1) +
+  xlim(-81, -76) +
+  ylim(26.5, 33) +
+  theme(legend.position = "none")
+ 
+  plts=c(plts,plt_density)
+}
+```
+
+
+
+
+
+```{r}
+# library(magick)
+# frames = c()
+# images = list.files(pattern = "jpeg")
+#   
+# for (i in length(images):1) {
+#     x = image_read(images[i])
+#     x = image_scale(x, "300")
+#     c(x, frames) -> frames
+# }
+# animation = image_animate(frames, fps = 4)
+# image_write(animation, "championship_winners.gif")
+```
+
+```{r}
+# animate(p, renderer = ffmpeg_renderer("output.mp4"))
+# 
+# gganimate::animate(plts, renderer = ffmpeg_renderer("output.mp4"))
+# ?animate
+```
+
+
+
+```{r}
+# for(i in 1:length(plts)){
+#   p=plts[i]
+#   ggsave(file.path("animation_frames/", paste0("frame",i,".png")), plot = p)
+# }
+
+```
+
+```{r}
+# img=image_read("animation_frames/frame1.png")
+# img
+```
+
+```{r}
+# frames = c()
+# 
+# for(i in 1:length(plts)){
+#     print(i)
+#     x =image_read(paste0("animation_frames/frame",i,".png"))
+#     x = image_scale(x, "1000")
+#     c(x, frames) -> frames
+# }
+# animation = image_animate(frames, fps = 4)
+# image_write(animation, "animation.gif")
+```
+
+```{r}
+# plts
+```
+
+
+
+```{r}
+mus <- mus
+Sigmas <- Sigmas
+props <- props
+x <- rmvnorm.mixt(50000, mus=mus, Sigmas=Sigmas, props=props)
+
+x_points=data.frame(
+  x=x[,1],
+  y=x[,2]
+)
+
+plt_density=ggplot(data = x_points, aes(x = x, y = y)) +
+  geom_density_2d_filled() +
+  geom_density_2d(color = "black") +
+  scale_fill_manual(
+    values = c(
+      "transparent",  # (0.00, 0.02]
+      viridisLite::viridis(8)
+    )
+  )+coord_fixed(ratio = 1)
+plt_density
+```
+
+
+
+```{r}
+# mus=c()
+# Sigmas=c()
+# 
+# 
+# for(i in 1:length(paths_SDE[[1]]$x)){
+#   for(j in 1:1){
+#   mus=rbind(mus,c(paths_SDE[[j]]$x[i],paths_SDE[[j]]$y[i]))
+#   Sigmas=rbind(Sigmas,Q*20)
+#   }
+# }
+
+```
+
+```{r}
+#props=rep(1/length(paths_SDE[[1]]$x),length(paths_SDE[[1]]$x))
+```
+
+
+
+```{r}
+# plotmixt(mus=mus, Sigmas=Sigmas, props=props, display="filled.contour",  asp = 1
+# )
+```
+```{r}
+#paths_SDE
+```
+
+
+```{r}
+# ggplot(hycom_df_filtered) +
+#   geom_quiver(
+#     aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+#     vecsize = 0
+#   ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_point(data=paths_SDE[[1]], aes(x=x,y=y),color="blue")
+```
+
+
+
+
+
+```{r}
+# mus <- rbind(c(-2,2), c(0,0), c(2,-2))
+# Sigmas <- rbind(diag(2), matrix(c(0.8, -0.72, -0.72, 0.8), nrow=2), diag(2))
+# cwt <- 3/11
+# props <- c(7/11, 3/11, 1/11)
+# plotmixt(mus=mus, Sigmas=Sigmas, props=props, display="filled.contour", xlim=c(-4,4), ylim=c(-4,4))
+```
+```{r}
+# #install.packages("plot3D")
+# #library(plot3D)
+# mus <- rbind(c(0,0,0), c(-1,0.5,1.5))
+# Sigma <- matrix(c(1, 0.7, 0.7, 0.7, 1, 0.7, 0.7, 0.7, 1), nr=3, nc=3) 
+# Sigmas <- rbind(Sigma, Sigma)
+# props <- c(1/2, 1/2)
+# plotmixt(mus=mus, Sigmas=Sigmas, props=props, dfs=c(11,8), dist="t")
+```
+
+
+
+
+
+
+
+
+#two part density mixture method for occurance density 
+
+```{r}
+# #part 1
+# mus_t=list()
+# Sigmas_t=list()
+# 
+# mus=c()
+# Sigmas=c()
+# 
+# 
+# for(i in 1:length(paths_SDE[[1]]$x)){
+#   mus=c()
+# Sigmas=c()
+#   for(j in 1:length(paths_SDE)){
+#   mus=rbind(mus,c(paths_SDE[[j]]$x[i],paths_SDE[[j]]$y[i]))
+#   Sigmas=rbind(Sigmas,Q*20)
+#   }
+#   mus_t[[i]]=mus
+#   Sigmas_t[[i]]=Sigmas
+# }
+
+
+```
+
+
+
+
+#path length of drift segments
+
+
+```{r}
+path_deterministic_high_res=make_path(k=k_hat,Q=array(c(0,0,0,0),dim=c(2,2)),step_size = 1)
+```
+
+```{r}
+ggplot(hycom_df_filtered) +
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+geom_path(data = path_deterministic,aes(x = x, y = y),linewidth = .8,color = "orange")+geom_path(data = path_deterministic_high_res,aes(x = x, y = y),linewidth = .8,color = "red")+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue")
+```
+
+
+
+
+```{r}
+# S=c()
+# path_temp=path_deterministic_high_res[1:20,c("x","y","x_prime","y_prime")]
+```
+
+
+
+
+
+
+```{r}
+# r_t=function(path,t){
+#   p_x=path$x_prime[t]
+#   p_y=path$y_prime[t]
+#   return(sqrt(p_x^2+p_y^2))
+# }
+```
+
+```{r}
+sqrt((path_deterministic$x[1+1]-path_deterministic$x[1])^2+(path_deterministic$y[1+1]-path_deterministic$y[1])^2)
+```
+```{r}
+2^2
+```
+
+
+
+```{r}
+S=c()
+for(i in 1:(length(path_deterministic$x)-1)){
+  S[i]=sqrt((path_deterministic$x[i+1]-path_deterministic$x[i])^2+(path_deterministic$y[i+1]-path_deterministic$y[i])^2)
+}
+
+```
+
+```{r}
+plot(S)
+```
+```{r}
+S_total=sum(S_test)
+S_total
+S[1]/S_total
+S[length(S)]/S_total
+```
+
+
+
+```{r}
+# simpsons_arch_len=function(ts){
+#   low_res_step_size=20
+# 
+#   r_tm_temp=r_t(path_deterministic_high_res,(ts-1)+low_res_step_size/2)
+#   r_tm_temp2=r_t(path_deterministic_high_res,(ts)+low_res_step_size/2)
+#   r_tm=(r_tm_temp+r_tm_temp2)/2
+#   
+#   zones=(low_res_step_size/2)-1
+#   path_len=0
+#   
+#   for(i in 1:(as.integer(zones/2)-1)){
+#     ta=2*(i)-2+ts
+#     tb=ta+1
+#     tc=ta+2
+#     r_ta=r_t(path_deterministic_high_res, t = ta)
+#     r_tb=r_t(path_deterministic_high_res, t = tb)
+#     r_tc=r_t(path_deterministic_high_res, t = tc)
+#     path_len=(2/6)*(r_ta+4*r_tb+r_tc)+path_len
+#     # print(ta)
+#     # print(tb)
+#     # print(tc)
+#   }
+#   #-----------------------------------------------
+#   i=as.integer(zones/2)
+#   ta=i*(2)-2+ts
+#   tb=ta+1
+# 
+#   r_ta=r_t(path_deterministic_high_res, t = ta)
+#   r_tb=r_t(path_deterministic_high_res, t = tb)
+#   r_tc=r_tm
+#   path_len=(2/6)*(r_ta+4*r_tb+r_tc)+path_len
+#   # print(ta)
+#   # print(tb)
+#   # print("mid")
+#   #-----------------------------------------------
+#   i=i+1
+#   i_temp=i
+#   tb=i*(2)+ts
+#   tc=tb+1
+#   r_ta=r_tm
+#   r_tb=r_t(path_deterministic_high_res, t = tb)
+#   r_tc=r_t(path_deterministic_high_res, t = tc)
+#   path_len=(2/6)*(r_ta+4*r_tb+r_tc)+path_len
+#   # print("mid")
+#   # print(tb)
+#   # print(tc)
+#   
+#   for(i in i_temp:zones){
+#     ta=i*(2)-1+ts
+#     tb=ta+1
+#     tc=ta+2
+#     r_ta=r_t(path_deterministic_high_res, t = ta)
+#     r_tb=r_t(path_deterministic_high_res, t = tb)
+#     r_tc=r_t(path_deterministic_high_res, t = tc)
+#     path_len=(2/6)*(r_ta+4*r_tb+r_tc)+path_len
+#     # print(ta)
+#     # print(tb)
+#     # print(tc)
+#     # 
+#     
+#   }
+#   return(path_len)
+# }
+
+```
+
+
+```{r}
+# S=c()
+# for(i in 1:length(path_deterministic$x)){
+#   S[i]=simpsons_arch_len(20*(i-1)+1)
+# }
+
+
+```
+
+
+```{r}
+# plot(S)
+```
+
+
+
+```{r}
+# S_total=sum(S)
+# S_total
+# S[1]/S_total
+# S[length(S)]/S_total
+```
+
+
+```{r}
+# S_temp=S
+# num_drop=0
+# bad_index=c()
+# path_deterministic_test=path_deterministic
+# while (max(S_temp==Inf)) {
+#   print(which.max(S_temp)+num_drop)
+#   bad_index[num_drop+1]=which.max(S_temp)+num_drop
+#   num_drop=num_drop+1
+#   S_temp=S_temp[-which.max(S_temp)]
+#   
+# }
+# print(num_drop)
+# path_deterministic_test=path_deterministic[-bad_index,]
+```
+```{r}
+# S_total=sum(S_temp)
+# S_total
+# S[1]/S_total
+# S[length(S)]/S_total
+```
+```{r}
+S_total=sum(S)
+S_total
+S[1]/S_total
+S[length(S)]/S_total
+```
+
+
+
+```{r}
+length(S_test)
+length(S_temp)
+length(path_deterministic_test$x)
+```
+
+
+```{r}
+max(S)
+S_total=sum(S)
+W_1=S[1]/(2*S_total)
+W=c(W_1)
+for(i in 2:(length(path_deterministic_test$x)-1)){
+  W[i]=(S[i]+S[i-1])/(2*S_total)
+}
+W[length(path_deterministic_test$x)]=S[length(path_deterministic_test$x)-1]/(2*S_total)
+sum(W)
+```
+
+```{r}
+W[length(W)]=W[length(W)]+(1-sum(W))
+sum(W)
+```
+
+
+
+```{r}
+mus=c()
+Sigmas=c()
+
+
+for(i in 1:length(paths_SDE[[1]]$x)){
+  for(j in 1:length(paths_SDE)){
+  mus=rbind(mus,c(paths_SDE[[j]]$x[i],paths_SDE[[j]]$y[i]))
+  Sigmas=rbind(Sigmas,Q*20)
+  }
+}
+
+```
+
+
+
+```{r}
+props=c()
+for(i in 1:length(W)){
+  props=append(props,rep(W[i]/50,50))
+}
+#props=rep(1/(length(paths_SDE)*length(paths_SDE[[1]]$x)),length(paths_SDE)*length(paths_SDE[[1]]$x))
+
+```
+
+```{r}
+ggplot(hycom_df_filtered) +
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+plots+geom_path(data = path_deterministic,aes(x = x, y = y),linewidth = .8,color = "red")+geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue")
+```
+
+
+
+
+
+
+```{r}
+mus <- mus
+Sigmas <- Sigmas
+props <- props
+x <- rmvnorm.mixt(5000, mus=mus, Sigmas=Sigmas, props=props)
+
+x_points=data.frame(
+  x=x[,1],
+  y=x[,2]
+)
+
+plt_density=ggplot(data = x_points, aes(x = x, y = y)) +
+  geom_density_2d_filled() +
+  geom_density_2d(color = "black") +
+  scale_fill_manual(
+    values = c(
+      "transparent",  # (0.00, 0.02]
+      viridisLite::viridis(8)
+    )
+  )+coord_fixed(ratio = 1)
+plt_density
+```
+
+
+
+
+```{r}
+ggplot(hycom_df_filtered) +
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  )+
+  coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+
+  plots+
+  geom_path(data = path_deterministic,aes(x = x, y = y),linewidth = .8,color = "red")+
+  geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="blue")
+```
+
+```{r}
+library(colorspace)
+```
+
+```{r}
+hcl_palettes("sequential", plot = TRUE)
+```
+
+
+
+```{r}
+hue=sequential_hcl(n=10, "Red-Purple",)[1:8]
+hue=rev(hue)
+```
+
+
+
+
+
+```{r}
+plots=c()
+for(path_SDE in paths_SDE){
+  
+  plots=c(plots,geom_path(data = path_SDE,aes(x = x, y = y),linewidth = .8,color = hue[6]))
+}
+```
+
+
+```{r}
+ggplot() +
+  geom_quiver(data=hycom_df_filtered,
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  )+
+  coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)+
+  plots+
+geom_density_2d_filled(data = x_points, aes(x = x, y = y),alpha=.6) +
+  geom_density_2d(color = "black") +
+  scale_fill_manual(
+    values = c(
+      "transparent",  # (0.00, 0.02]
+      hue
+      ))+
+  geom_path(data = path_deterministic,aes(x = x, y = y),linewidth = .8,color = "blue")+
+  geom_point(data=df_individual_trimmed, aes(x=lon,y=lat),color="black",size=2)
+```
+
+
+
+
+
+
+```{r}
+ggplot() +
+  geom_density_2d_filled(data = x_points, aes(x = x, y = y)) +
+  geom_density_2d(color = "black") +
+  scale_fill_manual(
+    values = c(
+      "transparent",  # (0.00, 0.02]
+      viridisLite::viridis(8)
+    )
+  )+
+  geom_quiver(data=hycom_df_filtered,
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  )+
+  coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE)
+   
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

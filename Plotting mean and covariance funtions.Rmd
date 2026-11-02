@@ -1,0 +1,331 @@
+```{r}
+library(ggplot2)
+library(ggvfields)
+library(MASS)
+```
+
+
+## funtional forms of diffrent vector feilds
+```{r}
+# example from Vector Feild interpolation with RFB paper
+VF_1 = function(v) c(v[1]*(1/2*v[1]^2+1/2)+v[2]*(-v[1]+(1/2*v[2]-1)*v[2]+1/2),1/2*v[1]^2*v[2]+v[1]*(-1/2*v[2]^2+v[2]-1/2)+1/2*v[2]-1) 
+
+# example of Vector feild with limit cycle using the 
+#Van der Pol oscillator
+VF_LimitCycle=function(v) c(v[2],.1*(1-v[1]^2)*v[2]-v[1])
+
+VF_StableCycle=function(v) c(v[2],-v[1])
+
+VF_SaddelNode=function(v) c(v[1],-2*v[2])
+
+VF_UnstableNode=function(v) c(v[1]/2,v[2]/2)
+```
+
+## numerical integrators
+```{r}
+forward_euler=function(x0, fun, step_size, n){
+
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  for(i in 2:n){
+    path[[i]]=path[[i-1]]+step_size*fun(path[[i-1]])
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+  }
+  path_df=data.frame(
+    x=x,
+    y=y
+  )
+  return(path_df)
+}
+```
+
+# Simulate the SDE using Euler-Maruyama
+```{r}
+euler_maryama=function(x0, fun, Q, step_size, n){
+  
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  for(i in 2:n){
+    temp =path[[i-1]]+step_size*fun(path[[i-1]])
+    
+    #we need to construct a joint normal distribution and and sample form that if     #the X and y components are not independent
+    
+    #if they are independent then this works
+    suppressWarnings({
+      temp_x=rnorm(n = 1, mean = 0, sd = Q[1,1]*step_size)
+      temp_y=rnorm(n = 1, mean = 0, sd = Q[2,2]*step_size)
+    })
+    temp_x=temp_x+temp[1]
+    temp_y=temp_y+temp[2]
+    path[[i]] = c(temp_x,temp_y)
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+    }
+  
+  path_df=data.frame(
+    x=x,
+    y=y
+  )
+  return(path_df)
+  }
+```
+
+
+
+# Mean and Covariance functions
+
+
+
+
+```{r}
+
+density_map=function(x_vals,y_vals,step){
+  
+  mu=as.numeric(mean_function[step,])
+  # print("means")
+  # print(mu)
+  # print("=================")
+  sig=Q*(step*time_step)
+  # print("covaraince")
+  # print(sig)
+  # print("==================")
+  inv_sig=solve(sig)
+  # print("inverse_sig")
+  # print(inv_sig)
+  # print("===============")
+  det_sig=det(sig)
+  # print("det_sig")
+  # print(det_sig)
+  # print("================")
+  map=matrix(ncol = length(x_vals),nrow=length(y_vals))
+  for(i in 1:length(x_vals)){
+    for(j in 1:length(y_vals)){
+      v=c(x_vals[i],y_vals[j])
+      map[i,j]=1/(sqrt((2*pi)^2*det_sig))*(exp((-1/2*t(v-mu)%*%inv_sig%*%(v-mu))))
+    }
+     
+  }
+
+  return(map)
+}
+```
+
+```{r}
+# density_map=function(x_vals,y_vals,step){
+#   
+#   mu=as.numeric(mean_function[step,])
+#   # print("means")
+#   # print(mu)
+#   # print("=================")
+#   sig=Q*(step*time_step)
+#   # print("covaraince")
+#   # print(sig)
+#   # print("==================")
+#   inv_sig=solve(sig)
+#   # print("inverse_sig")
+#   # print(inv_sig)
+#   # print("===============")
+#   det_sig=det(sig)
+#   # print("det_sig")
+#   # print(det_sig)
+#   # print("================")
+#   map=matrix(ncol = length(x_vals),nrow=length(y_vals))
+#   for(i in 1:length(x_vals)){
+#     for(j in 1:length(y_vals)){
+#       v=c(x_vals[i],y_vals[j])
+#       map[i,j]=1/(sqrt((2*pi)^2*det_sig))*(exp((-1/2*t(v-mu)%*%inv_sig%*%(v-mu))))
+#     }
+#      
+#   }
+# 
+#   return(map)
+# }
+
+density_map <- function(x_vals, y_vals, step){
+
+  mu <- as.numeric(mean_function[step,])
+
+  sig <- Q * (step * time_step)
+
+  inv_sig <- solve(sig)
+  det_sig <- det(sig)
+
+  # Create grid
+  grid <- expand.grid(x = x_vals, y = y_vals)
+
+  # Center coordinates
+  centered <- sweep(as.matrix(grid), 2, mu)
+
+  # Compute quadratic forms efficiently
+  quad <- rowSums((centered %*% inv_sig) * centered)
+
+  # Gaussian density
+  dens <- exp(-0.5 * quad) /
+    sqrt((2*pi)^2 * det_sig)
+
+  # Convert back to matrix form
+  map <- matrix(
+    dens,
+    nrow = length(y_vals),
+    ncol = length(x_vals),
+    byrow = FALSE
+  )
+
+  return(map)
+}
+
+
+time_step=.01
+steps = 100
+mean_function=forward_euler(c(-1.3,1.1), VF_1, time_step,steps )
+
+## create diffusion matrix 
+sigma_1=.5
+sigma_2=.5
+Q=matrix(data = c(sigma_1,0,0,sigma_2), nrow = 2, ncol = 2, byrow = FALSE,
+       dimnames = NULL)
+
+x_vals <- seq(-5, 5, length.out = 100)
+y_vals <- seq(-5, 5, length.out = 100)
+  
+
+map=matrix(0,nrow = length(x_vals),ncol=length(y_vals))
+for(i in 1:steps){
+  
+  temp=density_map(x_vals, y_vals, i)
+  map=map+temp
+  
+}
+```
+
+```{r}
+library(reshape2)
+
+```
+
+```{r}
+paths=list()
+  n_paths=25
+  for(i in 1:n_paths){
+     paths=c(paths,geom_path(data = euler_maryama(x0=c(-1.5,1.1), fun=VF_1,Q=Q,step_size=time_step, 1000),aes(x = x, y = y),linewidth = .5,color = "lightblue"))
+  }
+  
+ p=ggplot() +
+    xlim(-5,5) +
+    ylim(-5,5) +
+    geom_vector_field(
+      fun = VF_1,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+      
+    )+
+    paths+
+    geom_path(data = forward_euler(c(-1.5,1.1), VF_1, time_step, 1000),aes(x = x, y = y),linewidth = .8,color = "red")
+```
+
+```{r}
+p
+```
+
+```{r}
+df <- melt(map)
+
+# Convert matrix indices to physical coordinates
+df$x <- seq(-5, 5, length.out = nrow(map))[df$Var1]
+df$y <- seq(-5, 5, length.out = ncol(map))[df$Var2]
+
+p <- ggplot(df, aes(x = x, y = y, fill = value)) +
+  geom_tile()
+
+paths=list()
+  n_paths=20
+  for(i in 1:n_paths){
+     paths=c(paths,geom_path(data = euler_maryama(x0=c(-1.5,1.1), fun=VF_1,Q=Q,step_size=time_step, 100),aes(x = x, y = y),linewidth = .5,color = "lightblue"))
+  }
+  
+
+p+geom_vector_field(
+      fun = VF_1,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed" )+
+        paths
+    # geom_path(data = forward_euler(c(-1.5,1.1), VF_1, time_step, 100),aes(x = x, y = y),linewidth = .8,color = "red")
+    # 
+
+```
+```{r}
+p+p2
+```
+
+
+
+```{r}
+image(map/steps)
+
+```
+
+
+
+
+
+
+```{r}
+for(i in 1:length(mean_function)){
+  x_vals <- seq(-5, 5, length.out = 100)
+  y_vals <- seq(-5, 5, length.out = 100)
+  
+  # Generate a grid of all (x, y) combinations
+  grid_data <- expand.grid(x = x_vals, y = y_vals)
+}
+
+grid_data$z <- 
+```
+
+
+```{r}
+# Define a multivariate function
+f <- function(x, y) {
+  sin(x) * cos(y)
+}
+
+# Create a sequence for x and y axes
+x_vals <- seq(-5, 5, length.out = 100)
+y_vals <- seq(-5, 5, length.out = 100)
+
+# Generate a grid of all (x, y) combinations
+grid_data <- expand.grid(x = x_vals, y = y_vals)
+
+# Evaluate the function at each point
+grid_data$z <- f(grid_data$x, grid_data$y)
+```
+
+
+
+```{r}
+#we are going to let the randomness of the browian moation be the same in the x and y directions
+bx=.5
+by=.5
+Q=matrix(c(bx^2,bx*by,
+           by*bx,by^2), nrow=2, ncol = 2)
+
+t_0=0
+t=1000
+covariance_function=list()
+for(i in t_0+1:t+1){
+  covariance_function[[i]]=Q*(i-1)
+}
+
+for(i in 1:10){
+  print(p[i])
+}
+
+solve(Q)
+```
+

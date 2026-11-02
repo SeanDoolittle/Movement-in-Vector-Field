@@ -1,0 +1,384 @@
+```{r}
+library(ggplot2)
+library(ggvfields)
+library(MASS)
+```
+
+```{r}
+# example from Vector Feild interpolation with RFB paper
+VF_1 = function(v) c(v[1]*(1/2*v[1]^2+1/2)+v[2]*(-v[1]+(1/2*v[2]-1)*v[2]+1/2),1/2*v[1]^2*v[2]+v[1]*(-1/2*v[2]^2+v[2]-1/2)+1/2*v[2]-1) 
+
+VF_StableCycle=function(v) c(v[2],-v[1])
+```
+
+## numerical integrators
+```{r}
+forward_euler=function(x0, fun, step_size, n){
+
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  for(i in 2:n){
+    path[[i]]=path[[i-1]]+step_size*fun(path[[i-1]])
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+  }
+  path_df=data.frame(
+    x=x,
+    y=y
+  )
+  return(path_df)
+}
+```
+
+```{r}
+5/.01
+```
+
+```{r}
+bridge=function(x0,xT,T, fun, step_size,k){
+
+  
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  n=T/step_size
+  for(i in 2:n){
+    path[[i]]=path[[i-1]]+step_size*(fun(path[[i-1]])+k*(((xT-path[[i-1]]))/(T-i*step_size)))
+    #path[[i]]=path[[i-1]]+step_size*((xT-path[[i-1]]))/(T-i*step_size)
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+  }
+  path_df=data.frame(
+    x=x[1:n-1],
+    y=y[1:n-1]
+  )
+  return(path_df)
+}
+```
+
+```{r}
+euler_maryama_bridge=function(x0,xT,T, fun, Q, step_size){
+  
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  n=T/step_size
+  times <- seq(0, T, by=step_size)
+  
+  for(i in 2:length(times)){
+    #temp =path[[i-1]]+step_size*(fun(path[[i-1]])+k*(((xT-path[[i-1]]))/(T-i*step_size)))
+    temp =path[[i-1]]+step_size*(fun(path[[i-1]])+(((xT-path[[i-1]]))/(T-times[i])))
+
+    #temp=path[[i-1]]+step_size*((xT-path[[i-1]]))/(T-i*step_size)
+
+    
+    #we need to construct a joint normal distribution and and sample form that if     #the X and y components are not independent
+    
+    #if they are independent then this works
+    suppressWarnings({
+      temp_x=rnorm(n = 1, mean = 0, sd = Q[1,1]*step_size)
+      temp_y=rnorm(n = 1, mean = 0, sd = Q[2,2]*step_size)
+    })
+    temp_x=temp_x+temp[1]
+    temp_y=temp_y+temp[2]
+    path[[i]] = c(temp_x,temp_y)
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+    }
+  
+  path_df=data.frame(
+    x=x[1:n-1],
+    y=y[1:n-1]
+  )
+  return(path_df)
+  }
+
+```
+
+
+```{r}
+data=data.frame(
+  x=c(1,-3),
+  y=c(-2.5,5),
+  t=c(0,2)
+)
+```
+
+
+
+```{r}
+ggplot(data = data, aes(x, y)) +
+    xlim(-5,5) +
+    ylim(-5,7) +
+    geom_vector_field(
+      fun = VF_1,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+
+    )+geom_point()
+```
+
+```{r}
+path=bridge(x0 = c(-2.5,-5), xT = c(-3,5),T = .5,fun = VF_1,step_size = .001,k=5)
+```
+
+
+```{r}
+# Q=array(c(10,0,0,10), dim=c(2,2))
+# test_path=euler_maryama_bridge(x0 = c(-2.5,-5), xT = c(-3,5),T = .5,fun = VF_1,step_size = .001,k=5,Q=Q,c=1.5)
+```
+
+
+```{r}
+path
+```
+
+
+```{r}
+ggplot(data = data, aes(x, y)) +
+    xlim(-5,5) +
+    ylim(-5,7) +
+    geom_vector_field(
+      fun = VF_1,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+
+    )+geom_point()+geom_path(data = path,aes(x = x, y = y),linewidth = .8,color = "red")+geom_path(data = test_path,aes(x = x, y = y),linewidth = .8,color = "lightblue")
+
+```
+
+
+
+```{r}
+fun=function(s,T,F){
+  expm::expm(F*(T-s))
+}
+```
+
+```{r}
+monte_carlo_integration=function(fun,a,b,n,F,beta){
+  t=runif(n,min=a,max=b)
+  result=0
+  for(i in 1:n){
+    result=result+fun(s=t[i],T=b,F=F)%*%beta
+  }
+  return(((b-a)/n)*result)
+}
+```
+
+#linearization Guided Bridge
+
+```{r}
+x0=c(data$x[1],data$y[1])
+xT=c(data$x[2],data$y[2])
+F=pracma::jacobian(VF_1,x0)
+beta=VF_1(x0)-F%*%x0
+Q=array(c(.5,0,0,.5), dim=c(2,2))
+
+
+
+m <- function(s, T, x, F, beta) {
+
+  Phi <- expm::expm(F * (T-s))
+
+  Phi %*% x +
+    solve(F, (Phi - diag(nrow(F))) %*% beta)
+}
+
+```
+
+```{r}
+
+p=function(t,n){
+  T=data$t[2]
+  s=t
+  
+   fun_p=function(s,T){
+    expm::expm(F*(T-s))%*%Q%*%t(Q)%*%t(expm::expm(F*(T-s)))
+  }
+  
+  times=runif(n,min=s,max=T)
+  result <- matrix(0, nrow=2, ncol=2)
+  for(i in 1:n){
+    result=result+fun_p(s=times[i],T=T)
+  }
+  return(((T-s)/n)*result)
+}
+```
+
+```{r}
+grad_log_p=function(s,x,T,v){
+  #expm::expm(t(F)*(T-s))%*%ginv(p(s,1000))%*%(v-m(s,T,x,F,beta)
+  expm::expm(t(F)*(T-s))%*%solve(p(s,1000), v-m(s,T,x,F,beta))
+}
+```
+
+
+```{r}
+euler_maryama_bridge_2=function(x0,xT,T, fun, Q, step_size){
+  
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  times <- seq(0, T, by=step_size)
+  
+  for(i in 2:length(times)){
+    
+    #temp =path[[i-1]]+step_size*(fun(path[[i-1]])+k*(((xT-path[[i-1]]))/(T-i*step_size)))
+    temp =path[[i-1]]+step_size*(fun(path[[i-1]])+1000*(Q%*%t(Q)%*%grad_log_p(s = times[i],x = path[[i-1]],T = T,v = xT)))
+    #temp=path[[i-1]]+step_size*((xT-path[[i-1]]))/(T-i*step_size)
+    
+    #we need to construct a joint normal distribution and and sample form that if     #the X and y components are not independent
+    
+    #if they are independent then this works
+    # suppressWarnings({
+    #   temp_x=rnorm(n = 1, mean = 0, sd = Q[1,1]*step_size)
+    #   temp_y=rnorm(n = 1, mean = 0, sd = Q[2,2]*step_size)
+    # })
+    # temp_x=temp_x+temp[1]
+    # temp_y=temp_y+temp[2]
+    # path[[i]] = c(temp_x,temp_y)
+    noise <- Q %*% rnorm(2) * sqrt(step_size)
+    path[[i]] <- temp + noise
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+    }
+  
+  path_df=data.frame(
+    x=x[1:length(times)],
+    y=y[1:length(times)]
+  )
+  return(path_df)
+  }
+```
+
+
+```{r}
+test_path=euler_maryama_bridge_2(x0 = c(1,-2.5), xT = c(-3,5),T = .5,fun = VF_1,step_size = .01,Q=Q)
+```
+
+```{r}
+test_path
+```
+
+```{r}
+ggplot(data = data, aes(x, y)) +
+    xlim(-5,5) +
+    ylim(-5,7) +
+    geom_vector_field(
+      fun = VF_1,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+
+    )+geom_point()+geom_path(data = test_path,aes(x = x, y = y),linewidth = .8,color = "red")
+```
+
+```{r}
+euler_maryama_bridge_3=function(x0,xT,T, fun, Q, step_size){
+  
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  times <- seq(0, T, by=step_size)
+  
+  for(i in 2:length(times)){
+    temp =path[[i-1]]+step_size*(((-times[i]/T)+1)*fun(path[[i-1]])+(((xT-path[[i-1]]))/((T+.0000001)-times[i])))
+    #temp =path[[i-1]]+step_size*(fun(path[[i-1]])+1000*(Q%*%t(Q)%*%grad_log_p(s = times[i],x = path[[i-1]],T = T,v = xT)))
+    #temp=path[[i-1]]+step_size*((xT-path[[i-1]]))/(T-i*step_size)
+    
+    #we need to construct a joint normal distribution and and sample form that if     #the X and y components are not independent
+    
+    #if they are independent then this works
+    suppressWarnings({
+      temp_x=rnorm(n = 1, mean = 0, sd = Q[1,1]*step_size)
+      temp_y=rnorm(n = 1, mean = 0, sd = Q[2,2]*step_size)
+    })
+    temp_x=temp_x+temp[1]
+    temp_y=temp_y+temp[2]
+    path[[i]] = c(temp_x,temp_y)
+    #noise <- Q %*% rnorm(2) * sqrt(step_size)
+    #path[[i]] <- temp + noise
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+    }
+  
+  path_df=data.frame(
+    x=x[1:length(times)],
+    y=y[1:length(times)]
+  )
+  return(path_df)
+  }
+```
+
+```{r}
+noise <- Q %*% rnorm(2) * sqrt(.01)
+```
+
+```{r}
+rnorm(n = 1, mean = 0, sd = Q[1,1]*.01)
+```
+
+```{r}
+((-.5/.5)+1)*VF_1(x0)
+```
+
+
+```{r}
+test_path=euler_maryama_bridge_3(x0 = c(1,-2.5), xT = c(-3,5),T = .6,fun = VF_1,step_size = .01,Q=Q)
+```
+
+```{r}
+test_path
+```
+
+```{r}
+data=rbind(data,c(2.5,2.5,4))
+data
+```
+
+```{r}
+path=c()
+Q=array(c(5,0,0,5), dim=c(2,2))
+for(i in 2:length(data$t)){
+  temp_path=euler_maryama_bridge(x0 = c(data$x[i-1],data$y[i-1]), xT = c(data$x[i],data$y[i]),T = data$t[i]-data$t[i-1],fun = VF_StableCycle,step_size = .01,Q=Q)
+  path=rbind(path,temp_path)
+}
+
+ggplot(data = data, aes(x, y)) +
+    xlim(-5,5) +
+    ylim(-5,7) +
+    geom_vector_field(
+      fun = VF_StableCycle,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+
+    )+geom_point()+geom_path(data = path,aes(x = x, y = y),linewidth = .8,color = "red")
+```
+
+```{r}
+Q=array(c(5,0,0,5), dim=c(2,2))
+
+test_path=euler_maryama_bridge(x0 = c(1,-2.5), xT = c(-3,2.5),T = 3,fun = VF_StableCycle,step_size = .01,Q=Q)
+ggplot(data = data, aes(x, y)) +
+    xlim(-5,5) +
+    ylim(-5,7) +
+    geom_vector_field(
+      fun = VF_StableCycle,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+
+    )+geom_point()+geom_path(data = test_path,aes(x = x, y = y),linewidth = .8,color = "red")
+```
+
+

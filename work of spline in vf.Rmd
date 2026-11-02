@@ -1,0 +1,319 @@
+
+
+
+```{r}
+points=list(c(-1,1,1,2,0),
+         c(-2.5,2.5,2,1,2),
+         c(2,4,1,1,6),
+         c(5,3,2,5,9))
+
+x=c()
+x_prime=c()
+y=c()
+y_prime=c()
+t=c()
+for(i in 1:length(points)){
+  x[i]=points[[i]][1]
+  y[i]=points[[i]][2]
+  x_prime[i]=points[[i]][3]
+  y_prime[i]=points[[i]][4]
+  t[i]=points[[i]][5]
+}
+
+
+#VF_1=function(v)c(v[2],-v[1])
+VF_1 = function(v) c(v[1]*(1/2*v[1]^2+1/2)+v[2]*(-v[1]+(1/2*v[2]-1)*v[2]+1/2),1/2*v[1]^2*v[2]+v[1]*(-1/2*v[2]^2+v[2]-1/2)+1/2*v[2]-1)
+
+p=function(p_a,p_b,a,b,p_a_prime,p_b_prime,t){
+  c=c(2*((t-a)/(b-a))^3-3*((t-a)/(b-a))^2+1,
+      (((t-a)/(b-a))^3)-2*(((t-a)/(b-a))^2)+((t-a)/(b-a)),
+      -2*(((t-a)/(b-a))^3)+3*(((t-a)/(b-a))^2),
+      ((t-a)/(b-a))^3-((t-a)/(b-a))^2)
+  b=c(p_a,
+      (b-a)*p_a_prime,
+      p_b,
+      (b-a)*p_b_prime)
+  return(t(c)%*%b)
+}
+
+p_prime=function(p_a,p_b,a,b,p_a_prime,p_b_prime,t){
+  c=c(6*((t-a)/(b-a))^2-6*((t-a)/(b-a)),
+      (3*((t-a)/(b-a))^2)-4*(((t-a)/(b-a)))+1,
+      -6*(((t-a)/(b-a))^2)+6*((t-a)/(b-a)),
+      (3*(((t-a)/(b-a)))^2)-2*((t-a)/(b-a)))
+  b=c(p_a,
+      (b-a)*p_a_prime,
+      p_b,
+      (b-a)*p_b_prime)
+  return(t(c)%*%b)
+}
+
+h=function(n,time){ #i could make this better by having the time determine what section it is
+  vf=VF_1
+  x_a=x[n]
+  x_b=x[n+1]
+  y_a=y[n]
+  y_b=y[n+1]
+  x_a_prime=x_prime[n]
+  x_b_prime = x_prime[n+1]
+  y_a_prime = y_prime[n]
+  y_b_prime = y_prime[n+1]
+  a=t[n]
+  b=t[n+1]
+  
+  p_x=p(p_a=x_a,p_b=x_b,a=a,b=b,p_a_prime = x_a_prime,p_b_prime = x_b_prime,t=time)
+  p_y=p(p_a=y_a,p_b=y_b,a=a,b=b,p_a_prime =y_a_prime,p_b_prime = y_b_prime,t=time)
+  p_x_prime=p_prime(p_a=x_a,p_b=x_b,a=a,b=b,p_a_prime = x_a_prime,p_b_prime = x_b_prime,t=time)
+  p_y_prime=p_prime(p_a=y_a,p_b=y_b,a=a,b=b,p_a_prime =y_a_prime,p_b_prime = y_b_prime,t=time)
+
+  return(t(vf(c(p_x,p_y)))%*%c(p_x_prime,p_y_prime))
+}
+
+r=function(n,time){
+  x_a=x[n]
+  x_b=x[n+1]
+  y_a=y[n]
+  y_b=y[n+1]
+  x_a_prime=x_prime[n]
+  x_b_prime = x_prime[n+1]
+  y_a_prime = y_prime[n]
+  y_b_prime = y_prime[n+1]
+  a=t[n]
+  b=t[n+1]
+  
+  p_x_prime=p_prime(p_a=x_a,p_b=x_b,a=a,b=b,p_a_prime = x_a_prime,p_b_prime = x_b_prime,t=time)
+  p_y_prime=p_prime(p_a=y_a,p_b=y_b,a=a,b=b,p_a_prime =y_a_prime,p_b_prime = y_b_prime,t=time)
+  
+  return(sqrt((p_x_prime^2)+(p_y_prime^2)))
+
+}
+
+simpsons_method_h=function(n){
+  a=t[n]
+  b=t[n+1]
+  ((b-a)/6)*(h(n,a)+4*h(n,(a+b)/2)+h(n,b))
+}
+
+simpsons_method_r=function(n){
+  a=t[n]
+  b=t[n+1]
+  ((b-a)/6)*(r(n,a)+4*r(n,(a+b)/2)+r(n,b))
+}
+
+
+objective_func=0
+for(i in 1:(length(t)-1)){
+  objective_func=objective_func+(simpsons_method_h(i)/(simpsons_method_r(i)))
+  #objective_func=objective_func+(simpsons_method_h(i))
+
+}
+print(objective_func)
+```
+```{r}
+dist_path=c()
+dist_direct=c()
+for(i in 1:(length(t)-1)){
+  dist_path[i]=simpsons_method_r(i)
+  print(paste0("segment ",i," has a path distance of ",dist_path[i]))
+  
+  dist_direct[i]=sqrt((x[i+1]-x[i])^2+(y[i+1]-y[i])^2)
+  print(paste0("segment ",i," has a direct distance of ",dist_direct[i]))
+  #objective_func=objective_func+(simpsons_method_h(i))
+}
+percent_of_path=dist_path/sum(dist_path)
+percent_of_path
+
+
+dist_direct
+
+```
+
+
+```{r}
+library(optimx)
+
+objective <- function(v) {
+  x_prime <<- v[1:4]
+  y_prime <<- v[5:8]
+  #x = #add perameters for knots that are not data points
+  #y = 
+  #t = variable times of extra knot locations
+
+  objective_func=0
+  for(i in 1:(length(t)-1)){
+    objective_func=objective_func+(simpsons_method_h(i)/(simpsons_method_r(i)))
+    #objective_func=objective_func+(simpsons_method_h(i))
+  }
+
+  return(-objective_func) 
+}
+
+result <- optim(
+  par = rep(0, 8),  #make this little more complicated so that the location of the extra knots and times are between on the direct path between the data points
+  fn = objective,
+  method = "L-BFGS-B",
+  lower = rep(-10, 8), # add more tailored bounds 
+  upper = rep(10, 8)
+)
+
+-result$value
+result$par
+```
+```{r}
+print(-result$value)
+print(result$par)
+```
+```{r}
+x_prime=result$par[1:4]
+y_prime=result$par[5:8]
+
+
+
+n=0
+time=seq(t[1], t[4], length.out = 100)
+path_x=c()
+path_y=c()
+time[1]=time[1]+.001
+for(i in 1:length(time)){
+  if(t[n+1]<time[i]){
+    n=n+1
+    #print("-----------------------")
+    x_a=x[n]
+    x_b=x[n+1]
+    y_a=y[n]
+    y_b=y[n+1]
+    x_a_prime=x_prime[n]
+    x_b_prime = x_prime[n+1]
+    y_a_prime = y_prime[n]
+    y_b_prime = y_prime[n+1]
+    a=t[n]
+    b=t[n+1]
+  }
+  #print(i)
+  path_x[i]=p(p_a=x_a,p_b=x_b,a=a,b=b,p_a_prime = x_a_prime,p_b_prime = x_b_prime,t=time[i])
+  path_y[i]=p(p_a=y_a,p_b=y_b,a=a,b=b,p_a_prime =y_a_prime,p_b_prime = y_b_prime,t=time[i])
+
+}
+```
+
+ 
+
+```{r}
+x_prime=result$par[1:4]
+y_prime=result$par[5:8]
+
+
+
+n=0
+time=seq(t[1], t[4], length.out = 100)
+path_x=c()
+path_y=c()
+time[1]=time[1]+.001
+for(i in 1:length(time)){
+  if(t[n+1]<time[i]){
+    n=n+1
+    #print("-----------------------")
+    x_a=x[n]
+    x_b=x[n+1]
+    y_a=y[n]
+    y_b=y[n+1]
+    x_a_prime=x_prime[n]
+    x_b_prime = x_prime[n+1]
+    y_a_prime = y_prime[n]
+    y_b_prime = y_prime[n+1]
+    a=t[n]
+    b=t[n+1]
+  }
+  #print(i)
+  path_x[i]=p(p_a=x_a,p_b=x_b,a=a,b=b,p_a_prime = x_a_prime,p_b_prime = x_b_prime,t=time[i])
+  path_y[i]=p(p_a=y_a,p_b=y_b,a=a,b=b,p_a_prime =y_a_prime,p_b_prime = y_b_prime,t=time[i])
+
+}
+
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(ggvfields)
+```
+
+
+
+
+
+```{r}
+data=data.frame(
+  x=x,
+  y=y
+)
+
+path=data.frame(
+  x=path_x,
+  y=path_y,
+  t=time
+  )
+```
+
+
+```{r}
+plt1=ggplot()+geom_path(data=path, aes(x=t,y=x),linewidth = .8,color = "red")+geom_path(data=path,aes(x=t,y=y),linewidth =.8,color="blue")
+plt1
+```
+
+
+```{r}
+#  path=data.frame(
+#   x=path[,1],
+#   y=path[,2]
+# )
+plt2=ggplot(data = data, aes(x, y)) +
+    xlim(-4,5) +
+    ylim(0,10)+geom_path(data = path,aes(x = x, y = y),linewidth = .8,color = "red")+geom_point()
+  
+  plt3=ggplot(data = data, aes(x, y)) +
+    xlim(-5,5) +
+    ylim(-5,7) +
+    geom_vector_field(
+      fun = VF_1,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+
+    )+geom_path(data = path,aes(x = x, y = y),linewidth = .8,color = "red")+geom_point()
+
+```
+
+```{r}
+plt1
+plt2
+plt3
+```
+
+
+```{r}
+plt1
+plt2
+plt3
+
+```
+
+```{r}
+library(ctmm)
+```
+
+```{r}
+?as.telemetry()
+?predict.ctmm()
+```
+
+
+
+
+
+
+

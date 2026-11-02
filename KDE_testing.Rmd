@@ -1,0 +1,35 @@
+```{r}
+library(ks)
+data(faithful)
+```
+
+```{r}
+df_trimmed=faithful[1:10,]
+```
+
+
+
+```{r}
+#H <- Hpi(x=df_trimmed)
+Q=array(c(.01,0,0,.01),dim=c(2,2))
+H=Q
+```
+
+```{r}
+H
+```
+
+
+```{r}
+fhat <- kde(x=faithful, H=H)
+plot(fhat, display="filled.contour", drawpoints=TRUE, cex=0.5, pch=16, col.pt=1)
+```
+```{r}
+df_trimmed
+```
+
+```{r}
+fhat
+```
+
+

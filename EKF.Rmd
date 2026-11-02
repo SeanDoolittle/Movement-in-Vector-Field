@@ -1,0 +1,169 @@
+```{r}
+library(ggplot2)
+library(ggvfields)
+library(MASS)
+```
+
+```{r}
+# example from Vector Feild interpolation with RFB paper
+VF_1 = function(v) c(v[1]*(1/2*v[1]^2+1/2)+v[2]*(-v[1]+(1/2*v[2]-1)*v[2]+1/2),1/2*v[1]^2*v[2]+v[1]*(-1/2*v[2]^2+v[2]-1/2)+1/2*v[2]-1)
+```
+
+
+```{r}
+euler_maryama=function(x0, fun, Q, step_size, n){
+  
+  path=list(x0)
+  x=c(x0[1])
+  y=c(x0[2])
+  for(i in 2:n){
+    temp =path[[i-1]]+step_size*fun(path[[i-1]])
+    
+    #we need to construct a joint normal distribution and and sample form that if     #the X and y components are not independent
+    
+    #if they are independent then this works
+    suppressWarnings({
+      temp_x=rnorm(n = 1, mean = 0, sd = Q[1,1]*step_size)
+      temp_y=rnorm(n = 1, mean = 0, sd = Q[2,2]*step_size)
+    })
+    temp_x=temp_x+temp[1]
+    temp_y=temp_y+temp[2]
+    path[[i]] = c(temp_x,temp_y)
+    x[i]=path[[i]][1]
+    y[i]=path[[i]][2]
+    }
+  
+  path_df=data.frame(
+    x=x,
+    y=y
+  )
+  return(path_df)
+  }
+```
+
+```{r}
+divergence=function(x,y){
+  
+  grad_x=pracma::grad(VF_1_x, x0 = c(x,y))
+  grad_y=pracma::grad(VF_1_y, x0 = c(x,y))
+  
+  grad_x[1]+grad_y[2]
+
+}
+
+div_vec <- Vectorize(divergence)
+```
+
+```{r}
+test=array(c(1,2,3,4),dim=c(2,2))
+test
+```
+```{r}
+data=list(c(0,0),c(-1,-1),c(-2,-1),c(-2.5,-.5), c(-3,2))
+
+x1=c()
+x2=c()
+for(i in 1:length(data)){
+  x1[i]=data[[i]][1]
+  x2[i]=data[[i]][2]
+}
+
+```
+
+```{r}
+R=array(c(.1,0,0,.1), dim=c(2,2))
+
+points=list(c(-1,1,0),
+         c(-2.5,2,2),
+         c(2,4,6),
+         c(5,3,9))
+
+x=list()
+y=c()
+t=c()
+for(i in 1:length(points)){
+  e=mvrnorm(1,mu=c(0,0),Sigma = R)
+  #x[[i]]=c(points[[i]][1],points[[i]][2])
+  x[[i]]=c(x1[i],x2[i])
+  y[[i]]=x[[i]]+e
+  t[i]=points[[i]][3]
+}
+
+```
+
+```{r}
+t
+```
+
+
+```{r}
+Q=array(c(.2,0,0,.2),dim=c(2,2))
+delta_t=.1
+m=list(x[[1]])
+P=list(Q)
+m_hat=list()
+p_hat=list()
+F=list()
+K=list()
+I=array(c(1,0,0,1), dim=c(2,2))
+
+#Forward pass
+for(i in 1:(length(t)-1)){
+  delta_t=t[i+1]-t[i]
+  
+  #prediction
+  m_hat[[i]]=m[[i]]+VF_1(m[[i]])*delta_t
+  F[[i]]=I+pracma::jacobian(VF_1,m[[i]])*delta_t
+  p_hat[[i]]=F[[i]]%*%P[[i]]%*%t(F[[i]])+Q*delta_t
+
+  
+  #observer update
+  K[[i]]=p_hat[[i]]%*%solve((p_hat[[i]]+R))
+  m[[i+1]]=m_hat[[i]]+K[[i]]%*%(y[[i+1]]-m_hat[[i]])
+  P[[i+1]]=(I-K[[i]])%*%p_hat[[i]]
+
+}
+```
+
+```{r}
+
+```
+
+
+```{r}
+data=data.frame(
+  x=x1,
+  y=x2
+)
+```
+
+
+```{r}
+ggplot(data = data, aes(x, y)) +
+    xlim(-5,5) +
+    ylim(-5,7) +
+    geom_vector_field(
+      fun = VF_1,
+      xlim=c(-5,5),
+      ylim=c(-5,5),
+      n=20,
+      arrow = grid::arrow(angle = 15, length = unit(0.01, "npc"), type = "closed")
+
+    )+geom_point()
+```
+
+
+
+```{r}
+c(
+  "df_individual_trimmed",
+  "r"
+)
+```
+
+
+
+
+
+
+

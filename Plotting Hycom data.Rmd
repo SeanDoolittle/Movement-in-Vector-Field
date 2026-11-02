@@ -1,0 +1,193 @@
+```{r}
+library(ggplot2)
+library(ggquiver)
+library(terra)
+```
+
+```{r}
+url <- "https://ncss.hycom.org/thredds/ncss/GLBv0.08/expt_53.X/data/2012?var=water_u&var=water_v&north=32.5&west=-80&east=-73&south=26.5&disableProjSubset=on&horizStride=1&time=2012-12-31T21%3A00%3A00Z&vertCoord=0.0&addLatLon=true&accept=netcdf"
+
+# Download the NetCDF file
+download.file(url, "hycom.nc", mode = "wb")
+
+r <- rast("hycom.nc")
+
+coords_matrix <- xyFromCell(r, 1:ncell(r))
+
+long=coords_matrix[,1]
+lat=coords_matrix[,2]
+velocity_u=values(hycom$`water_u_depth=0`)
+velocity_v=values(hycom$`water_v_depth=0`)
+
+hycom_df=data.frame(
+  lat=lat,
+  long=long,
+  velocity_u=velocity_u,
+  velocity_v=velocity_v
+)
+
+#gets a subset of the data set to plot
+n=20
+hycom_df_filtered <- hycom_df[seq(1, nrow(hycom_df), n), ]
+
+#scales the vector size with a sigmoid function
+a=1
+hycom_df_filtered$water_u_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_u_depth.0)))-(a/2)
+hycom_df_filtered$water_v_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_v_depth.0)))-(a/2)
+
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE) 
+```
+
+
+```{r}
+# Read it
+hycom <- rast("hycom.nc")
+
+hycom
+```
+
+
+```{r}
+library(terra)
+#hycom_data2=rast("ice_2024.nc4")
+hycom_data2=rast("runs_FMRC_ESPC-D-V02_uv3z_RUN_2026-01-30T12_00_00Z.nc4")
+```
+
+```{r}
+#https://ncss.hycom.org/thredds/ncss/FMRC_ESPC-D-V02_uv3z/runs/FMRC_ESPC-D-V02_uv3z_RUN_2026-01-30T12:00:00Z?var=water_u&var=water_v&north=40&west=-60&east=-55&south=35&disableProjSubset=on&horizStride=1&time=2025-02-07T12%3A00%3A00Z&vertCoord=&addLatLon=true&accept=netcdf4
+```
+
+```{r}
+hycom_data2
+```
+
+
+
+```{r}
+terra::plot(hycom_data2$`water_u_depth=0`)
+terra::plot(hycom_data2$`water_v_depth=0`)
+```
+```{r}
+hycom_speed=sqrt(hycom_data2$ssu^2+hycom_data2$ssv^2)7
+v 
+```
+
+```{r}
+terra::plot(hycom_data2$ssu)
+terra::plot(hycom_data2$ssv)
+terra::plot(hycom_speed)
+```
+
+```{r}
+library(grid)
+```
+
+
+
+```{r}
+set.seed(234)
+DAT = matrix(runif(8), nrow=2)
+DAT
+```
+
+
+```{r}
+
+## Plotting
+plot(NULL, xlim=c(0,1), ylim=c(0,1), xlab="X", ylab="Y")
+arrows(rep(0,4), rep(0,4), DAT[1,], DAT[2,])
+
+```
+
+```{r}
+library(ggplot2)
+library(ggquiver)
+```
+
+
+```{r}
+# boiler plate code
+library(maps)
+world <- sf::st_as_sf(map('world', plot = FALSE, fill = TRUE))
+
+ggplot(seals) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=delta_long, v=delta_lat),
+    vecsize=0
+  ) + 
+  geom_sf(data = world) +
+  coord_sf(xlim = c(-173.8, -117.8), ylim = c(28.7, 50.7), expand = FALSE) + 
+  labs(title = "Seal movements", x = NULL, y = NULL)
+```
+
+```{r}
+seals
+```
+
+
+```{r}
+r=hycom_data2
+coords_matrix <- xyFromCell(r, 1:ncell(r))
+
+long=coords_matrix[,1]
+lat=coords_matrix[,2]
+velocity_u=values(hycom_data2$`water_u_depth=0`)
+velocity_v=values(hycom_data2$`water_v_depth=0`)
+
+hycom_df=data.frame(
+  lat=lat,
+  long=long,
+  velocity_u=velocity_u,
+  velocity_v=velocity_v
+)
+```
+
+```{r}
+max(hycom_df$lat)
+min(hycom_df$lat)
+```
+
+```{r}
+ggplot(hycom_df) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=velocity_u, v=velocity_v)
+  ) +coord_sf(xlim = c(min(hycom_df$long),max(hycom_df$long)), ylim = c(min(hycom_df$lat),max(hycom_df$lat)), expand = FALSE) 
+```
+
+
+```{r}
+ggplot(hycom_df) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=velocity_u, v=velocity_v)
+  ) +coord_sf(xlim = c(min(hycom_df$long)+4,max(hycom_df$long)), ylim = c(min(hycom_df$lat)+4,max(hycom_df$lat)), expand = FALSE) 
+  
+```
+
+
+
+```{r}
+#gets a subset of the data set to plot
+n=20
+hycom_df_filtered <- hycom_df[seq(1, nrow(hycom_df), n), ]
+
+#scales the vector size with a sigmoid function
+a=1
+hycom_df_filtered$water_u_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_u_depth.0)))-(a/2)
+hycom_df_filtered$water_v_depth.0=a*(1/(1+exp(-hycom_df_filtered$water_v_depth.0)))-(a/2)
+```
+
+
+```{r}
+ggplot(hycom_df_filtered) + 
+  geom_quiver(
+    aes(x=long, y=lat, u=water_u_depth.0, v=water_v_depth.0),
+    vecsize = 0
+  ) +coord_sf(xlim = c(min(hycom_df_filtered$long),max(hycom_df_filtered$long)), ylim = c(min(hycom_df_filtered$lat),max(hycom_df_filtered$lat)), expand = FALSE) 
+```
+
+
+
